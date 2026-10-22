@@ -22,7 +22,11 @@ export default defineConfig(({ mode }) => ({
   // relative, so the same build works under /zeeli/ on a router and on GitHub Pages
   base: './',
   plugins: [react(), ...(process.env.VERIFY_SSH ? [sshReadonly()] : [])],
-  define: { 'import.meta.env.VITE_TRANSPORT': JSON.stringify(transportFor(mode)) },
+  define: {
+    'import.meta.env.VITE_TRANSPORT': JSON.stringify(transportFor(mode)),
+    // set by the release workflow; anything else is a development build
+    'import.meta.env.VITE_VERSION': JSON.stringify(process.env.ZEELI_VERSION ?? 'dev'),
+  },
   server: {
     port: 4318,
     proxy: mode === 'demo' ? {} : routerProxy,

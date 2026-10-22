@@ -1,6 +1,6 @@
 {
   "zeeli-controller": {
-    "description": "Zeeli Controller: service state and the few app commands the console runs",
+    "description": "Zeeli Controller: service state and the few app commands the console runs, and its own updates",
     "read": {
       "ubus": {
         "rc": ["list"]
@@ -12,7 +12,8 @@
       },
       "file": {
         "/usr/bin/iperf3 -s -1 -D": ["exec"],
-        "/usr/bin/etherwake -i br-lan *": ["exec"]
+        "/usr/bin/etherwake -i br-lan *": ["exec"],
+        "/usr/libexec/zeeli-update install *": ["exec"]
       }
     }
   }

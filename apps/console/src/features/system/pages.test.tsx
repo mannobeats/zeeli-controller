@@ -42,7 +42,7 @@ test('the fan temperature must be 50 to 100 °C', async () => {
 
 test('installing firmware from a file', async () => {
   const user = await renderPage(<FirmwarePage />);
-  expect(await screen.findByText('Up to date')).toBeTruthy();
+  expect(await screen.findByText('Router firmware')).toBeTruthy();
   await user.upload(screen.getByLabelText('Firmware file'), new File(['img'], 'openwrt.bin'));
   expect(await screen.findByText('c0ffee')).toBeTruthy();
   await user.click(screen.getByRole('checkbox', { name: 'Keep settings and installed packages' }));

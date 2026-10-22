@@ -81,19 +81,58 @@ The console builds to `apps/console/dist` as a static bundle with relative paths
 
 ### Install on your router
 
+From an SSH session on the router (`ssh root@192.168.8.1`):
+
+```sh
+uclient-fetch -qO /tmp/zeeli-update https://github.com/mannobeats/zeeli-controller/releases/latest/download/zeeli-update && sh /tmp/zeeli-update install latest
+```
+
+This downloads the latest release, checks its signature against the project's release key and installs it at `https://192.168.8.1/zeeli/`. GL.iNet's own panel, LuCI and SSH keep working beside it. Sign in with the router's admin password; the session is shared with the stock panel.
+
+It installs three things:
+- the console in `/www/zeeli`
+- the updater in `/usr/libexec/zeeli-update`
+- one permission file, [`tools/router/zeeli-controller.acl.json`](tools/router/zeeli-controller.acl.json). It lets the admin session see whether services are running and start or stop them, start a one-test iperf3 server, send Wake on LAN packets and install console releases. Nothing else.
+
+To remove everything:
+
+```sh
+ssh root@192.168.8.1 'rm -rf /www/zeeli /usr/libexec/zeeli-update /usr/share/rpcd/acl.d/zeeli-controller.json && /etc/init.d/rpcd reload'
+```
+
+A firmware upgrade that doesn't keep settings removes these; install again afterwards.
+
+### Updates
+
+The console checks GitHub for a newer release every few hours. When one is out, the top bar shows **Update to x.y.z**, and **System → Firmware** lists what changed with an **Install** button. The router downloads the release itself and refuses any download that isn't signed with the release key.
+
+### Install a development build
+
 ```sh
 ROUTER_SSH=root@192.168.8.1 pnpm deploy:router
 ```
 
-This builds the console and copies it to `/www/zeeli` on the router over SSH (key access required), then prints the address: `https://192.168.8.1/zeeli/`. GL.iNet's own panel, LuCI and SSH keep working beside it. Sign in with the router's admin password; the session is shared with the stock panel.
+This builds the working copy and installs it over SSH (key access required), the same way an update does but without the signature. It shows as a development build, which can install the latest release from **System → Firmware**.
 
-It also installs one permission file, [`tools/router/zeeli-controller.acl.json`](tools/router/zeeli-controller.acl.json), which lets the admin session see whether services are running and start or stop them, start a one-test iperf3 server, and send Wake on LAN packets. Nothing else. To remove everything:
+## Releases
+
+1. On GitHub, open **Actions → Release → Run workflow** and pick which part of the version goes up: patch (`0.1.0 → 0.1.1`), minor (`0.1.1 → 0.2.0`) or major.
+2. The workflow runs every quality gate, builds the console with the new version, packages and signs it, and publishes release `vX.Y.Z` with the commit list since the last release as its notes.
+
+Routers find it within a few hours, or straight away with **Check again** on the Firmware page.
+
+A release carries three files: `zeeli-controller.tar.gz` (the console, the updater and the permission file), its signature `zeeli-controller.tar.gz.sig`, and `zeeli-update` for first installs.
+
+### The release key
+
+Releases are signed with an Ed25519 key in usign format, the format OpenWrt uses for its own packages. The public key is in [`tools/router/zeeli-update`](tools/router/zeeli-update), and the secret key is the `ZEELI_SIGNING_KEY` repository secret. To make a new key:
 
 ```sh
-ssh root@192.168.8.1 'rm -rf /www/zeeli /usr/share/rpcd/acl.d/zeeli-controller.json && /etc/init.d/rpcd reload'
+node tools/release/sign.mjs keygen release        # writes release.pub and release.sec
+gh secret set ZEELI_SIGNING_KEY < release.sec
 ```
 
-A firmware upgrade that doesn't keep settings removes the folder; run the command again afterwards.
+Then put the contents of `release.pub` in `zeeli-update` and publish a release with the old key still in the secret, so routers trust the new updater. Only after that, set the secret to the new key. Keep `release.sec` somewhere safe and out of the repository.
 
 ## Architecture
 
@@ -129,6 +168,8 @@ This runs every gate in order. CI runs the same gates on every push and pull req
 | `pnpm doctor`    | react-doctor checks on the console              |
 | `pnpm fallow`    | Unused code, duplication and dependency hygiene |
 | `pnpm build`     | Production build                                |
+
+The release workflow runs `pnpm check` before it publishes anything.
 
 ## Roadmap
 

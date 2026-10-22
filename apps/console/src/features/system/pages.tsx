@@ -1,5 +1,5 @@
 import { IconExternalLink, IconRefresh, IconRotateClockwise, IconSearch } from '@tabler/icons-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FIRMWARE_CHECK, type LogKind, type RouterInfo, type RouterStatus, type WifiTimer } from '@zeeli/router-api';
 import { type ReactNode, useState } from 'react';
 import { useInfo, useStatus, useWrite } from '../../api/queries.ts';
@@ -14,6 +14,7 @@ import { Row2, Segmented, SelectField, SwitchRow, TextField, WeekPicker } from '
 import { Chip, Grid, KeyValues, Meter, Note, PageHeader, Panel, Stack } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
+import { ConsoleUpdatePanel } from './ConsoleUpdate.tsx';
 
 const hm = (h: string | undefined, m: string | undefined) => `${(h ?? '00').padStart(2, '0')}:${(m ?? '00').padStart(2, '0')}`;
 const splitTime = (t: string) => {
@@ -205,6 +206,7 @@ function UsbForm({
 
 export function FirmwarePage() {
   const { toast, confirm } = useFeedback();
+  const queryClient = useQueryClient();
   const fw = useQuery({ queryKey: ['firmware'], queryFn: api.device.firmware });
   const checks = useSettings('firmware-checks', api.device.firmwareChecks);
   const install = useWrite(() => api.device.installOnline(), []);
@@ -234,14 +236,21 @@ export function FirmwarePage() {
           <PageHeader
             title="Firmware"
             actions={
-              <Button icon={<IconRefresh size={16} />} onClick={() => fw.refetch()}>
+              <Button
+                icon={<IconRefresh size={16} />}
+                onClick={() => {
+                  fw.refetch();
+                  queryClient.invalidateQueries({ queryKey: ['console-release'] });
+                }}
+              >
                 Check again
               </Button>
             }
           />
           <Stack>
+            <ConsoleUpdatePanel />
             <Panel
-              title={f.available ? `Version ${f.available} is available` : 'Up to date'}
+              title={f.available ? `Router firmware ${f.available} is available` : 'Router firmware'}
               actions={f.available ? <Chip tone="warn">Update</Chip> : <Chip tone="ok">Latest</Chip>}
             >
               <KeyValues

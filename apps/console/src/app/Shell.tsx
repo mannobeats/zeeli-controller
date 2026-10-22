@@ -18,6 +18,8 @@ import { DropdownMenu, Tooltip } from 'radix-ui';
 import { type ReactNode, useState } from 'react';
 import { useClients, useInfo, useStatus } from '../api/queries.ts';
 import { isDemo } from '../api/router.ts';
+import { UpdateNotice } from '../features/system/ConsoleUpdate.tsx';
+import { VERSION } from '../features/system/console-release.ts';
 import { duration, rateText } from '../lib/format.ts';
 import { PanelSlot } from '../ui/panel-slot.ts';
 import { CommandPalette } from './CommandPalette.tsx';
@@ -93,6 +95,7 @@ function TopBar({ onSearch, onSignOut }: { onSearch: () => void; onSignOut: () =
       </div>
       <LinkState />
       <div className="right">
+        <UpdateNotice />
         <LiveRate />
         <button type="button" className="search-trigger" onClick={onSearch}>
           <IconSearch size={16} stroke={1.75} />
@@ -169,6 +172,7 @@ function AccountMenu({ info, onSignOut }: { info: RouterInfo | undefined; onSign
             <b>{info?.hostname}</b>
             {info?.model} · firmware {info?.firmware}
             {status ? <span>Up {duration(status.uptime)} · signed in as root</span> : null}
+            <span>Zeeli Controller {VERSION}</span>
           </div>
           <DropdownMenu.Separator asChild>
             <hr />

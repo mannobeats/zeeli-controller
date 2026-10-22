@@ -197,7 +197,7 @@ export const SECTIONS: Section[] = [
       {
         pages: [
           { id: 'device', title: 'Device', keywords: 'hardware fan led reboot cpu memory' },
-          { id: 'firmware', title: 'Firmware', keywords: 'update upgrade' },
+          { id: 'firmware', title: 'Firmware', keywords: 'update upgrade console release version' },
           { id: 'schedules', title: 'Schedules', keywords: 'reboot led wifi timer' },
           { id: 'time', title: 'Time zone' },
           { id: 'logs', title: 'Logs', keywords: 'syslog kernel' },

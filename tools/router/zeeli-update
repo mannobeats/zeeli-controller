@@ -1,0 +1,78 @@
+#!/bin/sh
+# Installs Zeeli Controller on this router, or updates it, from a GitHub release.
+# Every download must carry a signature from the project's release key before anything
+# is replaced. The console runs `install <tag>` through its permission file.
+#
+#   zeeli-update install latest      the newest release
+#   zeeli-update install v1.2.3      a given release
+#   zeeli-update apply <file>        an unsigned package from `pnpm deploy:router`, over SSH only
+#
+# First install, from an SSH session on the router:
+#   uclient-fetch -qO /tmp/zeeli-update https://github.com/mannobeats/zeeli-controller/releases/latest/download/zeeli-update && sh /tmp/zeeli-update install latest
+set -eu
+
+REPO=mannobeats/zeeli-controller
+DEST=/www/zeeli
+ACL=/usr/share/rpcd/acl.d/zeeli-controller.json
+SELF=/usr/libexec/zeeli-update
+# the public half of the release key; a new key ships in a release signed by the old one
+KEY='untrusted comment: Zeeli Controller release key
+RWQINVCQZITZyqGOockgT4DEmL61ghbXN1KBCaGEGhBzwQm3zGjg1fQ/'
+
+fail() {
+  echo "$*" >&2
+  exit 1
+}
+
+TMP=$(mktemp -d /tmp/zeeli-update.XXXXXX)
+trap 'rm -rf "$TMP"' EXIT
+
+download() {
+  uclient-fetch -q -T 30 -O "$TMP/$1" "$URL/$1" 2>/dev/null || fail "Couldn’t download $1 from GitHub. Check the router’s internet connection."
+}
+
+# Unpack a package and put it in place: the console folder in one move, then the updater
+# and the permission file, reloading permissions only when they changed.
+apply() {
+  mkdir "$TMP/pkg"
+  tar -C "$TMP/pkg" -xzf "$1" || fail "The package is damaged."
+  [ -f "$TMP/pkg/www/index.html" ] && [ -f "$TMP/pkg/VERSION" ] || fail "The package is missing files."
+
+  rm -rf "$DEST.new" "$DEST.old"
+  cp -a "$TMP/pkg/www" "$DEST.new"
+  { [ ! -d "$DEST" ] || mv "$DEST" "$DEST.old"; } && mv "$DEST.new" "$DEST" && rm -rf "$DEST.old"
+
+  # copy, then rename, so this script is never rewritten while it runs
+  mkdir -p "${SELF%/*}"
+  cp "$TMP/pkg/zeeli-update" "$SELF.new" && chmod 755 "$SELF.new" && mv "$SELF.new" "$SELF"
+  if ! cmp -s "$TMP/pkg/zeeli-controller.acl.json" "$ACL"; then
+    cp "$TMP/pkg/zeeli-controller.acl.json" "$ACL.new" && mv "$ACL.new" "$ACL"
+    /etc/init.d/rpcd reload
+  fi
+  echo "Installed Zeeli Controller $(cat "$TMP/pkg/VERSION")"
+}
+
+case "${1:-}" in
+  install)
+    TAG="${2:-}"
+    if [ "$TAG" = latest ]; then
+      URL="https://github.com/$REPO/releases/latest/download"
+    elif echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+      URL="https://github.com/$REPO/releases/download/$TAG"
+    else
+      fail "Not a release: $TAG"
+    fi
+    download zeeli-controller.tar.gz
+    download zeeli-controller.tar.gz.sig
+    printf '%s\n' "$KEY" >"$TMP/key.pub"
+    usign -V -q -m "$TMP/zeeli-controller.tar.gz" -p "$TMP/key.pub" || fail "The download isn’t signed with the Zeeli Controller release key, so nothing was installed."
+    apply "$TMP/zeeli-controller.tar.gz"
+    ;;
+  apply)
+    [ -f "${2:-}" ] || fail "No package at ${2:-}"
+    apply "$2"
+    ;;
+  *)
+    fail "Usage: zeeli-update install <latest|v1.2.3>"
+    ;;
+esac
