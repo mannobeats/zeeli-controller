@@ -153,12 +153,15 @@ const DeviceNode = memo(function DeviceNode({ data }: NodeProps<Node<DeviceData,
   const c = data.client;
   const I = iconFor(c);
   return (
-    <div className={`topo-node device cat-${data.category}${c.online ? '' : ' offline'}`}>
+    <div className={`topo-node device${c.online ? '' : ' offline'}`}>
       <Handle type="target" position={Position.Left} />
       <I size={18} stroke={1.75} />
       <div>
         <b>{c.name}</b>
-        <span>{c.online ? `${c.link.label} · ${rateText(c.rx)}` : 'Offline'}</span>
+        <span className="conn">
+          <Swatch category={data.category} />
+          {c.online ? `${c.link.label} · ${rateText(c.rx)}` : 'Offline'}
+        </span>
       </div>
     </div>
   );

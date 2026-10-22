@@ -19,6 +19,7 @@ import { type ReactNode, useState } from 'react';
 import { useClients, useInfo, useStatus } from '../api/queries.ts';
 import { isDemo } from '../api/router.ts';
 import { duration, rateText } from '../lib/format.ts';
+import { PanelSlot } from '../ui/panel-slot.ts';
 import { CommandPalette } from './CommandPalette.tsx';
 import { pageById, SECTIONS, type Section } from './nav.ts';
 import { toggleTheme, useTheme } from './theme.ts';
@@ -39,6 +40,7 @@ export function Shell({ page, children, onSignOut }: { page: string; children: R
   const section = pageById(page)?.section ?? SECTIONS[0];
   const [drawer, setDrawer] = useState(false);
   const [palette, setPalette] = useState(false);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
   const go = (id: string) => {
     navigate(id);
     setDrawer(false);
@@ -47,15 +49,26 @@ export function Shell({ page, children, onSignOut }: { page: string; children: R
 
   return (
     <Tooltip.Provider delayDuration={400}>
-      <div className={`app${hasPages(section) ? ' has-ctx' : ''}`}>
+      <div className={`app${hasPages(section) || section.panel ? ' has-ctx' : ''}`}>
         <TopBar onSearch={() => setPalette(true)} onSignOut={onSignOut} />
         <Rail current={section} go={go} />
         <aside className={`ctx${drawer ? ' open' : ''}`} aria-label={drawer ? 'Menu' : `${section.title} pages`}>
-          {drawer ? <AllPages current={page} go={go} /> : <SectionPages section={section} current={page} go={go} />}
+          {drawer ? (
+            <AllPages current={page} go={go} />
+          ) : section.panel ? (
+            <>
+              <h2 className="ctx-title">{section.title}</h2>
+              <div ref={setSlot} />
+            </>
+          ) : (
+            <SectionPages section={section} current={page} go={go} />
+          )}
         </aside>
         {drawer ? <button type="button" className="scrim open ctx-scrim" aria-label="Close menu" onClick={() => setDrawer(false)} /> : null}
         <main className="main" id="main" tabIndex={-1}>
-          <div className="page">{children}</div>
+          <div className="page">
+            <PanelSlot value={section.panel ? slot : null}>{children}</PanelSlot>
+          </div>
         </main>
         <PhoneTabs page={page} go={go} onMenu={() => setDrawer(true)} />
         <CommandPalette open={palette} onOpenChange={setPalette} />

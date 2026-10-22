@@ -25,7 +25,6 @@
 
 /* panels */
 .panel-head .head-end { display: flex; align-items: center; gap: 12px; margin-left: auto; }
-.panel.section { margin-top: 16px; }
 .legend { display: inline-flex; gap: 14px; flex-wrap: wrap; }
 .kv .kv-row { display: contents; }
 .kv .kv-row:last-child dt, .kv .kv-row:last-child dd { border-bottom: 0; }
@@ -36,8 +35,7 @@
 .svc:hover .name { color: var(--brand); }
 
 /* filter column beside a list (Clients) */
-.with-filters { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
-.filters { position: sticky; top: calc(var(--top-h) + 24px); display: grid; gap: 2px; }
+.filters { display: grid; gap: 2px; }
 .filters .search { width: 100%; margin-bottom: 8px; }
 .filters .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--ink-3); pointer-events: none; }
 .filters .ctx-sub:first-of-type { padding-top: 8px; }
@@ -45,7 +43,6 @@
 /* bulk selection */
 .data-table .c-check { width: 40px; padding-right: 0; }
 .data-table .col-xs { width: 64px; } .data-table .col-sm { width: 96px; } .data-table .col-md { width: 160px; } .data-table .col-lg { width: 240px; }
-.c-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--brand); cursor: pointer; vertical-align: middle; }
 .bulk-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; margin: 0 0 10px; padding: 6px 6px 6px 14px; border-radius: var(--radius); background: var(--select-bg); color: var(--select-ink); animation: pop 160ms var(--ease); }
 .bulk-count { font-weight: 500; font-size: var(--t-13); }
 .bulk-actions { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -74,14 +71,7 @@
 
 /* tables on phones: two-line rows driven by each column's `phone` role */
 @media (max-width: 720px) {
-  .with-filters { display: flex; flex-direction: column; gap: 12px; }
-  .with-filters-main { display: contents; }
-  .with-filters-main > .page-head { order: -1; margin-bottom: 0; }
   .bar-cell:not(.start) .bar { display: none; }
-  .filters { position: static; display: block; }
-  .filters .ctx-list { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 6px; }
-  .filters .ctx-item { width: auto; flex: none; height: 36px; border: 1px solid var(--line); }
-  .filters .ctx-check, .filters .ctx-sub { display: none; }
   .data-table td.ph-hide { display: none; }
   .data-table td.ph-title { grid-column: 1; grid-row: 1; }
   .data-table td.ph-sub { grid-column: 1; color: var(--ink-3); }
@@ -114,10 +104,11 @@
 .topo-node { display: flex; align-items: center; gap: 10px; width: 100%; height: 100%; padding: 0 12px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line-strong); color: var(--ink-3); box-shadow: var(--shadow-sm); cursor: pointer; transition: opacity var(--t-fast), border-color var(--t-fast); }
 .topo-node > div { display: grid; min-width: 0; line-height: 1.25; }
 .topo-node b { color: var(--ink); font-size: var(--t-13); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topo-node .conn { gap: 6px; }
+.topo-node .swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.topo-node.offline .swatch { background: var(--ink-4); }
 .topo-node span { color: var(--ink-3); font-size: var(--t-12); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topo-node.core.router { border-color: var(--brand); color: var(--brand); }
-.topo-node.device { border-left: 3px solid var(--cat); }
-.topo-node.device.offline { border-left-color: var(--line-strong); }
 .topo-node.device.offline b { color: var(--ink-3); }
 .topo-net { width: 100%; height: 100%; border-radius: var(--radius-lg); border: 1px solid var(--line-strong); background: color-mix(in srgb, var(--fill) 60%, transparent); }
 .topo-net-head { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; padding: 16px 16px 0; }
@@ -126,7 +117,7 @@
 .topo-net-empty { margin: 14px 16px 0; color: var(--ink-3); font-size: var(--t-13); }
 .react-flow__node-network.dim .topo-net { opacity: .5; }
 .react-flow__node-network { cursor: grab; }
-.react-flow__node.selected .topo-node, .topo-node:hover { border-color: var(--brand); }
+.react-flow__node.selected .topo-node, .topo-node:hover { border-color: var(--ink-4); }
 .react-flow__node.dim { opacity: .3; }
 .topo-edge path, .react-flow__edge.topo-edge .react-flow__edge-path { stroke: var(--line-strong); stroke-linecap: round; }
 .react-flow__edge.topo-edge.live .react-flow__edge-path { stroke: var(--brand); stroke-width: 3; }
@@ -148,7 +139,7 @@
 }
 
 /* ---------- app store ---------- */
-.app-section + .app-section { margin-top: 28px; }
+.app-section + .app-section { margin-top: 12px; }
 .app-cat { font-size: var(--t-16); font-weight: 600; margin: 8px 0 12px; }
 .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .app-tile { display: grid; grid-template-columns: 44px minmax(0, 1fr); grid-template-rows: auto 1fr auto; column-gap: 14px; row-gap: 12px; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); min-width: 0; }
@@ -205,11 +196,18 @@
 .inline-input .box { height: var(--h-sm); }
 .inline-input input { width: 100%; text-align: right; }
 .level-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
-.with-filters-main { min-width: 0; }
 .wk-axis { margin-top: 2px; }
 .dev-label { pointer-events: none; }
 @media (max-width: 720px) {
   .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 16px; }
   .figure:nth-child(3) { padding-left: 0; border-left: 0; }
   .app-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* section-panel controls shown inline when the panel is hidden */
+@media (max-width: 860px) {
+  .main .filters { display: block; margin-bottom: 12px; }
+  .main .filters .ctx-list { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .main .filters .ctx-item { width: auto; flex: none; height: 36px; border: 1px solid var(--line); }
+  .main .filters .ctx-check, .main .filters .ctx-sub { display: none; }
 }

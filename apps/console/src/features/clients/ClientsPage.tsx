@@ -11,6 +11,7 @@ import { DataTable } from '../../ui/DataTable.tsx';
 import { DeviceIcon, Swatch } from '../../ui/DeviceIcon.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { Chip, PageHeader, Panel } from '../../ui/Layout.tsx';
+import { SectionPanel } from '../../ui/SectionPanel.tsx';
 import { DeviceSheet } from './DeviceSheet.tsx';
 
 type Status = 'all' | 'online' | 'offline' | 'blocked';
@@ -91,7 +92,8 @@ export default function ClientsPage() {
   const current = all.find((c) => c.mac === open) ?? null;
 
   return (
-    <div className="with-filters">
+    <>
+      <PageHeader title="Clients" sub={`${all.filter((c) => c.online).length} online of ${all.length} known`} />
       <ClientFilters
         all={all}
         status={status}
@@ -103,84 +105,80 @@ export default function ClientsPage() {
         inCat={inCat}
         statusFilter={statusFilter}
       />
-
-      <div className="with-filters-main">
-        <PageHeader title="Clients" sub={`${all.filter((c) => c.online).length} online of ${all.length} known`} />
-        <Panel>
-          {rows.length ? (
-            <DataTable
-              label="Clients"
-              rows={rows}
-              rowKey={(c) => c.mac}
-              selectedKey={open}
-              onRowClick={(c) => setOpen(c.mac)}
-              rowClass={(c) => (c.online ? undefined : 'off')}
-              bulk={[
-                { label: 'Block', danger: true, run: (l) => setBlocked(l, true), when: (l) => l.some((c) => !c.blocked) },
-                { label: 'Unblock', run: (l) => setBlocked(l, false), when: (l) => l.some((c) => c.blocked) },
-                { label: 'Forget', danger: true, run: forgetAll, when: (l) => l.some((c) => !c.online) },
-              ]}
-              columns={[
-                {
-                  key: 'dev',
-                  header: 'Device',
-                  phone: 'title',
-                  cell: (c) => (
-                    <div className="dev-cell">
-                      <span className={`mark${c.online ? ' ok' : ''}`} />
-                      <DeviceIcon client={c} />
-                      {c.name}
-                      {c.blocked ? <Chip tone="bad">Blocked</Chip> : null}
-                      {c.limitRx || c.limitTx ? <Chip>Limited</Chip> : null}
+      <Panel>
+        {rows.length ? (
+          <DataTable
+            label="Clients"
+            rows={rows}
+            rowKey={(c) => c.mac}
+            selectedKey={open}
+            onRowClick={(c) => setOpen(c.mac)}
+            rowClass={(c) => (c.online ? undefined : 'off')}
+            bulk={[
+              { label: 'Block', danger: true, run: (l) => setBlocked(l, true), when: (l) => l.some((c) => !c.blocked) },
+              { label: 'Unblock', run: (l) => setBlocked(l, false), when: (l) => l.some((c) => c.blocked) },
+              { label: 'Forget', danger: true, run: forgetAll, when: (l) => l.some((c) => !c.online) },
+            ]}
+            columns={[
+              {
+                key: 'dev',
+                header: 'Device',
+                phone: 'title',
+                cell: (c) => (
+                  <div className="dev-cell">
+                    <span className={`mark${c.online ? ' ok' : ''}`} />
+                    <DeviceIcon client={c} />
+                    {c.name}
+                    {c.blocked ? <Chip tone="bad">Blocked</Chip> : null}
+                    {c.limitRx || c.limitTx ? <Chip>Limited</Chip> : null}
+                  </div>
+                ),
+              },
+              {
+                key: 'conn',
+                header: 'Connected to',
+                phone: 'sub',
+                cell: (c) => (
+                  <span className="conn">
+                    <Swatch category={categoryOf(c)} />
+                    {c.online ? c.link.label : `${c.link.label} · ${ago(c.since)}`}
+                  </span>
+                ),
+              },
+              { key: 'ip', header: 'IP address', cell: (c) => <span className="mono">{c.ip}</span> },
+              { key: 'mac', header: 'MAC', cell: (c) => <span className="mono muted">{c.mac}</span> },
+              {
+                key: 'down',
+                header: 'Down',
+                align: 'end',
+                phone: 'end',
+                cell: (c) =>
+                  c.online ? (
+                    <div className="bar-cell">
+                      <span className="bar">
+                        <i style={{ width: `${Math.max(2, (c.rx / max) * 100)}%` }} />
+                      </span>
+                      {rateText(c.rx)}
                     </div>
+                  ) : (
+                    '—'
                   ),
-                },
-                {
-                  key: 'conn',
-                  header: 'Connected to',
-                  phone: 'sub',
-                  cell: (c) => (
-                    <span className="conn">
-                      <Swatch category={categoryOf(c)} />
-                      {c.online ? c.link.label : `${c.link.label} · ${ago(c.since)}`}
-                    </span>
-                  ),
-                },
-                { key: 'ip', header: 'IP address', cell: (c) => <span className="mono">{c.ip}</span> },
-                { key: 'mac', header: 'MAC', cell: (c) => <span className="mono muted">{c.mac}</span> },
-                {
-                  key: 'down',
-                  header: 'Down',
-                  align: 'end',
-                  phone: 'end',
-                  cell: (c) =>
-                    c.online ? (
-                      <div className="bar-cell">
-                        <span className="bar">
-                          <i style={{ width: `${Math.max(2, (c.rx / max) * 100)}%` }} />
-                        </span>
-                        {rateText(c.rx)}
-                      </div>
-                    ) : (
-                      '—'
-                    ),
-                },
-                { key: 'up', header: 'Up', align: 'end', cell: (c) => (c.online ? rateText(c.tx) : '—') },
-                { key: 'total', header: 'Usage', align: 'end', cell: (c) => bytes(c.totalRx + c.totalTx) },
-              ]}
-            />
-          ) : (
-            <NoClients needle={needle} q={q} status={status} filtered={cats.size > 0} clear={() => setQ('')} />
-          )}
-        </Panel>
-      </div>
+              },
+              { key: 'up', header: 'Up', align: 'end', cell: (c) => (c.online ? rateText(c.tx) : '—') },
+              { key: 'total', header: 'Usage', align: 'end', cell: (c) => bytes(c.totalRx + c.totalTx) },
+            ]}
+          />
+        ) : (
+          <NoClients needle={needle} q={q} status={status} filtered={cats.size > 0} clear={() => setQ('')} />
+        )}
+      </Panel>
       <DeviceSheet
         client={current}
         onClose={() => setOpen(null)}
         onBlock={(c) => setBlocked([c], !c.blocked)}
         onForget={(c) => forgetAll([c])}
       />
-    </div>
+    </>
   );
 }
 
@@ -198,7 +196,7 @@ interface FilterProps {
 
 function ClientFilters({ all, status, setStatus, cats, setCats, q, setQ, inCat, statusFilter }: FilterProps) {
   return (
-    <aside className="filters" aria-label="Filters">
+    <SectionPanel label="Filters">
       <label className="search">
         <IconSearch size={16} stroke={1.75} />
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, IP or MAC" aria-label="Search clients" />
@@ -229,7 +227,7 @@ function ClientFilters({ all, status, setStatus, cats, setCats, q, setQ, inCat, 
           <span className="n">{all.filter((c) => categoryOf(c) === k).filter(statusFilter).length}</span>
         </label>
       ))}
-    </aside>
+    </SectionPanel>
   );
 }
 

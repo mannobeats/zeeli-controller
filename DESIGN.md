@@ -68,6 +68,18 @@ First screen: online through Ethernet 1 at 72.9 / 13.5 Mbps, and the path from t
 - Tables sit flush with the panel edges; numbers right-aligned and tabular; IDs in mono.
 - Rows: 40px desktop, two-line rows on phones.
 
+## Page layout
+
+- `.page` is a two-column grid with one 16px gap. That gap is the only space between page
+  blocks: no margins on panels, headers or notices.
+- Everything spans both columns except settings forms (`SettingsForm`), which pair up two per
+  row, so a form is never wider than half the page and its fields, switches and Save button
+  share the panel's edges. Below 1100px they stack.
+- `.section-gap` is `display: contents`: wrapping panels in it never adds space of its own.
+- A section can give its panel to the page (`panel: true` in `nav.ts`); the page renders its
+  controls through `SectionPanel`, which falls back to inline on narrow screens. Clients uses
+  this for its filters.
+
 ## Controls
 
 - Heights: 28 (small, toolbars), 32 (default), 44 (touch, sign-in).
@@ -75,7 +87,12 @@ First screen: online through Ethernet 1 at 72.9 / 13.5 Mbps, and the path from t
 - Buttons: `primary` (blue, one per view), `default` (outlined), `ghost`, `danger` (red,
   names the action). No arrows or icons that repeat the label.
 - Chips only for a state that needs action or a fixed category; never a dot in a chip.
-- Band swatches (10px rounded squares) mark the connection category everywhere it appears.
+- Band swatches (10px rounded squares, 8px on topology cards) mark the connection category
+  everywhere it appears. Never a coloured border or stripe on a card.
+- Checkboxes and radios are drawn with the tokens (one style, 16px); toggle chips (`ChipPicker`)
+  show selection with the selection fill plus a full border, so the state reads in both themes.
+- Multi-line fields use `TextArea`; the box draws the border and grows with its rows.
+- On/off settings are `SwitchRow`s: label left, switch on the panel's right edge.
 
 ## Motion
 

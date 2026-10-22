@@ -39,7 +39,8 @@ test('a tunnel for chosen devices needs a device', async () => {
   await user.click(s.getByRole('button', { name: 'Add tunnel' }));
   expect((await s.findByRole('alert')).textContent).toBe('Pick at least one device.');
   const [device] = await api.clients.list();
-  await user.click(s.getAllByRole('checkbox', { name: (device as { name: string }).name })[0] as HTMLElement);
+  // the device list loads separately from the sheet, so wait for it
+  await user.click((await s.findAllByRole('checkbox', { name: (device as { name: string }).name }))[0] as HTMLElement);
   await user.click(s.getByRole('button', { name: 'Add tunnel' }));
   await expectToast('Added Kids');
   expect(await tunnelNames()).toContain('Kids');

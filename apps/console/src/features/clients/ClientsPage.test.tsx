@@ -30,7 +30,7 @@ test('status and connection filters', async () => {
   await user.click(screen.getByRole('button', { name: /^Blocked/ }));
   expect((await table()).getAllByRole('row')).toHaveLength(blocked.length + 1);
   await user.click(screen.getByRole('button', { name: /^All/ }));
-  await user.click(within(screen.getByRole('complementary', { name: 'Filters' })).getAllByRole('checkbox')[0] as HTMLElement);
+  await user.click(within(screen.getByRole('region', { name: 'Filters' })).getAllByRole('checkbox')[0] as HTMLElement);
   const wired = (await api.clients.list()).filter((c) => categoryOf(c) === 'wired');
   expect((await table()).getAllByRole('row')).toHaveLength(wired.length + 1);
 });

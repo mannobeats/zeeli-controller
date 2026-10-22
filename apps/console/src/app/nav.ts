@@ -28,6 +28,8 @@ export interface Section {
   id: string;
   title: string;
   icon: Icon;
+  /** The page fills the section panel itself (Clients puts its filters there). */
+  panel?: boolean;
   groups: Group[];
 }
 
@@ -56,6 +58,7 @@ export const SECTIONS: Section[] = [
     id: 'clients',
     title: 'Clients',
     icon: IconDevices,
+    panel: true,
     groups: [{ pages: [{ id: 'clients', title: 'Clients', keywords: 'devices block forget rename limit' }] }],
   },
   {

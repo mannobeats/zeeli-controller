@@ -472,6 +472,7 @@ function ProfileSheet({ profile, preset, profiles, clients, masterOn, pause, onC
       }}
     >
       <TextField label="Profile name" value={v.name} onChange={set('name')} placeholder="Maya" />
+      <SwitchRow label="Profile on" checked={v.enabled} onChange={set('enabled')} />
       <DevicePicker macs={v.macs} onChange={set('macs')} clients={clients} others={profiles.filter((x) => x.id !== profile?.id)} />
       <section className="group">
         <h3>Bedtime</h3>
@@ -500,7 +501,6 @@ function ProfileSheet({ profile, preset, profiles, clients, masterOn, pause, onC
         <AppBlocker apps={v.apps} onChange={set('apps')} />
         <TextArea label="Block these websites, one per line" value={sites} onChange={setSites} mono rows={3} />
       </section>
-      <SwitchRow label="Profile on" checked={v.enabled} onChange={set('enabled')} />
     </Sheet>
   );
 }
