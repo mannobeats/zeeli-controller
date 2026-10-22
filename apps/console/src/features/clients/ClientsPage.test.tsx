@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import type { Client } from '@zeeli/router-api';
 import { expect, test } from 'vitest';
 import { api } from '../../api/router.ts';
@@ -91,4 +91,14 @@ test('bulk forget only touches offline devices', async () => {
   await user.click((await confirmDialog()).getByRole('button', { name: 'Forget' }));
   await expectToast(`Forgot ${gone.name}`);
   expect((await api.clients.list()).map((c) => c.mac)).not.toContain(gone.mac);
+});
+
+test('the selection bar counts checked rows and Escape clears it', async () => {
+  const user = await renderPage(<ClientsPage />);
+  const t = await table();
+  await user.click(t.getAllByRole('checkbox', { name: /^Select row/ })[0] as HTMLElement);
+  await user.click(t.getAllByRole('checkbox', { name: /^Select row/ })[1] as HTMLElement);
+  expect(screen.getByRole('toolbar', { name: '2 selected' })).toBeTruthy();
+  await user.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('toolbar')).toBeNull());
 });

@@ -42,6 +42,8 @@
   --warn:      light-dark(#b86e00, #ba9864);
   --warn-soft: light-dark(#fff3dc, color-mix(in srgb, #ba9864 14%, transparent));
   --bad:       light-dark(#d92d34, #d8847d);
+  /* red that reads on the inverted --strong surface (selection bar, toast) */
+  --bad-on-strong: light-dark(#ff9c96, #c4282e);
   --bad-soft:  light-dark(#fdebec, color-mix(in srgb, #d8847d 14%, transparent));
 
   /* connection categories, same lightness so none shouts */

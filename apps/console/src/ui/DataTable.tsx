@@ -1,4 +1,6 @@
-import { type ReactNode, useRef, useState } from 'react';
+import { IconX } from '@tabler/icons-react';
+import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface Column<T> {
   key: string;
@@ -64,29 +66,7 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, sele
 
   return (
     <>
-      {bulk && live.size > 0 ? (
-        <div className="bulk-bar" role="toolbar" aria-label={`${live.size} selected`}>
-          <span className="bulk-count">{live.size} selected</span>
-          <div className="bulk-actions">
-            {actions.map((a) => (
-              <button
-                key={a.label}
-                type="button"
-                className={`btn ${a.danger ? 'danger' : 'default'}`}
-                onClick={() => {
-                  a.run(picked);
-                  setChecked(new Set());
-                }}
-              >
-                {a.label}
-              </button>
-            ))}
-            <button type="button" className="btn ghost" onClick={() => setChecked(new Set())}>
-              Clear
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {bulk && live.size > 0 ? <BulkBar count={live.size} actions={actions} picked={picked} clear={() => setChecked(new Set())} /> : null}
       <div className="table-wrap">
         <table className="data-table" aria-label={label}>
           <thead>
@@ -137,7 +117,14 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, sele
                   }
                 >
                   {bulk ? (
-                    <td className="c-check" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                    <td
+                      className="c-check"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        // keep Enter and Space on the checkbox from opening the row; let Escape reach the bar
+                        if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+                      }}
+                    >
                       <input
                         type="checkbox"
                         aria-label={`Select row ${i + 1}`}
@@ -163,5 +150,42 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, sele
         </table>
       </div>
     </>
+  );
+}
+
+/**
+ * What to do with the checked rows: a bar floating over the bottom of the screen, so it
+ * never pushes the list down and stays in reach while you scroll. Escape clears.
+ */
+function BulkBar<T>({ count, actions, picked, clear }: { count: number; actions: BulkAction<T>[]; picked: T[]; clear: () => void }) {
+  const onKey = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key === 'Escape') clear();
+  });
+  useEffect(() => {
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  return createPortal(
+    <div className="bulk-bar" role="toolbar" aria-label={`${count} selected`}>
+      <span className="bulk-count num">{count} selected</span>
+      <span className="bulk-sep" aria-hidden />
+      {actions.map((a) => (
+        <button
+          key={a.label}
+          type="button"
+          className={`bulk-btn${a.danger ? ' danger' : ''}`}
+          onClick={() => {
+            a.run(picked);
+            clear();
+          }}
+        >
+          {a.label}
+        </button>
+      ))}
+      <button type="button" className="bulk-btn bulk-close" onClick={clear} aria-label="Clear selection" title="Clear selection (Esc)">
+        <IconX size={16} stroke={1.75} />
+      </button>
+    </div>,
+    document.body,
   );
 }

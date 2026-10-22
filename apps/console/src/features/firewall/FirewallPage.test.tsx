@@ -24,8 +24,8 @@ test('rules made by a router service open read-only and offer no bulk actions', 
   expect(
     within(screen.getByRole('toolbar'))
       .getAllByRole('button')
-      .map((b) => b.textContent),
-  ).toEqual(['Clear']);
+      .map((b) => b.getAttribute('aria-label') ?? b.textContent),
+  ).toEqual(['Clear selection']);
 });
 
 test(

@@ -92,6 +92,9 @@ First screen: online through Ethernet 1 at 72.9 / 13.5 Mbps, and the path from t
 - Checkboxes and radios are drawn with the tokens (one style, 16px); toggle chips (`ChipPicker`)
   show selection with the selection fill plus a full border, so the state reads in both themes.
 - Multi-line fields use `TextArea`; the box draws the border and grows with its rows.
+- Bulk actions: checking rows raises one floating bar at the bottom, centred over the content,
+  in the inverted ink the toast uses: count, a divider, the actions (destructive ones in red),
+  and a close button. It never pushes the list; Escape clears.
 - On/off settings are `SwitchRow`s: label left, switch on the panel's right edge.
 
 ## Motion
