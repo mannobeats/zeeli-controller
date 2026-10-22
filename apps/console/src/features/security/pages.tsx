@@ -15,6 +15,7 @@ import { type ComponentType, useState } from 'react';
 import { useClients, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { useSettings } from '../../api/useSettings.ts';
+import { navigate } from '../../app/useHashRoute.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { plural } from '../../lib/format.ts';
 import { checkRulePort } from '../../lib/rules.ts';
@@ -708,7 +709,13 @@ function LocalForm({ cfg, save }: { cfg: LocalAccess; save: (v: Partial<LocalAcc
         <TextField label="SSH port" inputMode="numeric" value={v.ssh_port} onChange={(x) => form.set('ssh_port', x)} />
       </Row2>
       <SwitchRow label="SSH on" checked={v.ssh_enabled} onChange={(x) => form.set('ssh_enabled', x)} />
-      <Note>LuCI, OpenWrt’s own interface, has its own ports in System → Admin and access.</Note>
+      <Note>
+        LuCI, OpenWrt’s own interface, has its own ports in{' '}
+        <button type="button" className="link" onClick={() => navigate('admin')}>
+          Admin and access
+        </button>
+        .
+      </Note>
     </SettingsForm>
   );
 }

@@ -101,17 +101,102 @@ export interface Lease6 {
 export interface Package {
   name: string;
   version: string;
+  description: string;
+  section?: string;
+  /** Installed size in bytes, from the feed list. */
   size?: number;
-  description?: string;
 }
-const parsePackages = (out: string): Package[] =>
-  out
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      const [name = '', version = '', ...rest] = line.split(' - ');
-      return { name, version, description: rest.join(' - ') };
-    });
+
+/**
+ * opkg's control stanzas, as in /usr/lib/opkg/status and the feed lists: `Field: value`
+ * lines, indented continuation lines, and a blank line between packages.
+ */
+export function parseStanzas(out: string): Record<string, string>[] {
+  const stanzas: Record<string, string>[] = [];
+  let current: Record<string, string> | null = null;
+  let field = '';
+  for (const line of out.replace(/\r/g, '').split('\n')) {
+    if (line === '') current = null;
+    else if (/^\s/.test(line)) {
+      if (current && field) current[field] = `${current[field]} ${line.trim()}`.trim();
+    } else {
+      const colon = line.indexOf(':');
+      if (colon < 1) continue;
+      if (!current) {
+        current = {};
+        stanzas.push(current);
+      }
+      field = line.slice(0, colon);
+      current[field] = line.slice(colon + 1).trim();
+    }
+  }
+  return stanzas;
+}
+
+const toPackage = (s: Record<string, string>): Package => ({
+  name: s.Package ?? '',
+  version: s.Version ?? '',
+  description: s.Description ?? '',
+  ...(s.Section ? { section: s.Section } : {}),
+  ...(s['Installed-Size'] ? { size: Number(s['Installed-Size']) } : {}),
+});
+
+/** Packages whose status is installed (`install user installed`, `install hold installed`). */
+export const parseInstalled = (out: string): Package[] =>
+  parseStanzas(out)
+    .filter((s) => s.Package && s.Status?.split(/\s+/)[2] === 'installed')
+    .map(toPackage);
+
+/** Every package the feeds offer, once per name at its newest version. */
+export function parseAvailable(out: string): Package[] {
+  const byName = new Map<string, Package>();
+  for (const s of parseStanzas(out)) {
+    if (!s.Package) continue;
+    const p = toPackage(s);
+    const seen = byName.get(p.name);
+    if (!seen || compareVersions(p.version, seen.version) > 0) byName.set(p.name, p);
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Orders opkg versions: digit runs compare as numbers, everything else as text.
+ * ponytail: no epoch or `~` rules; add them if a feed ever ships such versions.
+ */
+export function compareVersions(a: string, b: string): number {
+  const x = a.match(/\d+|\D+/g) ?? [];
+  const y = b.match(/\d+|\D+/g) ?? [];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const p = x[i] ?? '';
+    const q = y[i] ?? '';
+    if (p === q) continue;
+    if (/^\d+$/.test(p) && /^\d+$/.test(q)) return Number(p) - Number(q);
+    return p < q ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * opkg-call install/remove/update always exits 0 and prints `{code, stdout, stderr}`;
+ * a non-zero `code` is opkg failing, and its last stderr line says why.
+ */
+export function opkgResult(out: string | undefined): string {
+  let r: { code?: number; stdout?: string; stderr?: string };
+  try {
+    r = JSON.parse(out ?? '');
+  } catch {
+    throw new RouterError('failed', 'opkg sent an answer the console can’t read.', out);
+  }
+  if (r.code) {
+    const why = (r.stderr || r.stdout || '')
+      .trim()
+      .split('\n')
+      .pop()
+      ?.replace(/^\*\s*/, '');
+    throw new RouterError('failed', why || `opkg failed with code ${r.code}.`, r);
+  }
+  return r.stdout ?? '';
+}
 
 export const openwrt = (t: Transport) => {
   const uci = {
@@ -158,11 +243,15 @@ export const openwrt = (t: Transport) => {
 
   const exec = (command: string, params: string[], timeoutMs = 15_000) =>
     t.ubus<{ code?: number; stdout?: string; stderr?: string }>('file', 'exec', { command, params }, timeoutMs);
-  const opkg = async (...params: string[]) => {
-    const r = await exec('/usr/libexec/opkg-call', params, 180_000);
-    if (r.code) throw new RouterError('failed', (r.stderr || r.stdout || 'opkg failed').trim().split('\n').pop() ?? 'opkg failed');
-    return r.stdout ?? '';
-  };
+  const opkg = async (...params: string[]) => opkgResult((await exec('/usr/libexec/opkg-call', params, 300_000)).stdout);
+  const installed = async () => parseInstalled((await exec('/usr/libexec/opkg-call', ['list-installed'], 60_000)).stdout ?? '');
+  /** Run an opkg change, then read the installed list back and check it says `ok`. */
+  async function opkgChange(params: string[], ok: (now: Package[]) => string[]) {
+    await opkg(...params);
+    const wrong = ok(await installed());
+    if (wrong.length) throw new RouterError('notKept', `opkg finished, but ${wrong.join(', ')} didn’t change.`);
+  }
+  const has = (now: Package[], name: string) => now.some((p) => p.name === name);
 
   return {
     uci,
@@ -311,11 +400,15 @@ export const openwrt = (t: Transport) => {
 
     /* packages */
     packages: {
-      installed: async () => parsePackages(await opkg('list-installed')),
-      available: async () => parsePackages(await opkg('list-available')),
+      installed,
+      // the feed lists run to megabytes, past what ubus file.exec will carry
+      available: async () => parseAvailable(await t.execDirect('/usr/libexec/opkg-call', ['list-available'], 120_000)),
       refresh: () => opkg('update'),
-      install: (name: string) => opkg('install', name),
-      remove: (name: string) => opkg('remove', name),
+      install: (names: string[]) => opkgChange(['install', ...names], (now) => names.filter((n) => !has(now, n))),
+      remove: (names: string[]) => opkgChange(['remove', ...names], (now) => names.filter((n) => has(now, n))),
+      /** opkg install of an installed package upgrades it to the feed's version. */
+      upgrade: (p: Package) =>
+        opkgChange(['install', p.name], (now) => (now.some((x) => x.name === p.name && x.version === p.version) ? [] : [p.name])),
     },
   };
 };

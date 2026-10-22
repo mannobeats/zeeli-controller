@@ -1,5 +1,6 @@
 import { settings } from '../settings.ts';
 import type { Transport } from '../transport/types.ts';
+import { writeAndVerify } from '../verify.ts';
 
 export type DnsMode = 'auto' | 'manual' | 'secure' | 'proxy';
 
@@ -52,6 +53,18 @@ export interface AdguardState {
   dns_enabled: boolean;
 }
 
+/** AdGuard Home's extra protections, beyond the filter lists. */
+export interface AdguardProtections {
+  /** Block known malware and phishing sites. */
+  safeBrowsing: boolean;
+  /** Block adult sites. */
+  adultContent: boolean;
+  /** Force SafeSearch on search engines and restricted mode on YouTube. */
+  safeSearch: boolean;
+}
+
+type SafeSearchSettings = { enabled: boolean } & Record<string, boolean>;
+
 export interface AdguardStats {
   queries: number;
   blocked: number;
@@ -99,23 +112,22 @@ export const dns = (t: Transport) => ({
 
   adguard: settings<AdguardState>(t, 'adguardhome', { timeoutMs: 90_000 }),
 
-  async adguardStats(): Promise<AdguardStats | null> {
-    const s = await t
-      .adguard<{
-        num_dns_queries?: number;
-        num_blocked_filtering?: number;
-        num_replaced_safebrowsing?: number;
-        num_replaced_parental?: number;
-        avg_processing_time?: number;
-        dns_queries?: number[];
-        blocked_filtering?: number[];
-        time_units?: 'hours' | 'days';
-        top_queried_domains?: Record<string, number>[];
-        top_blocked_domains?: Record<string, number>[];
-        top_clients?: Record<string, number>[];
-      }>('stats')
-      .catch(() => null);
-    if (!s) return null;
+  protections: protections(t),
+
+  async adguardStats(): Promise<AdguardStats> {
+    const s = await t.adguard<{
+      num_dns_queries?: number;
+      num_blocked_filtering?: number;
+      num_replaced_safebrowsing?: number;
+      num_replaced_parental?: number;
+      avg_processing_time?: number;
+      dns_queries?: number[];
+      blocked_filtering?: number[];
+      time_units?: 'hours' | 'days';
+      top_queried_domains?: Record<string, number>[];
+      top_blocked_domains?: Record<string, number>[];
+      top_clients?: Record<string, number>[];
+    }>('stats');
     return {
       queries: s.num_dns_queries ?? 0,
       blocked: s.num_blocked_filtering ?? 0,
@@ -163,3 +175,37 @@ export const dns = (t: Transport) => ({
     t.adguard('filtering/set_url', { method: 'POST', body: { url, whitelist: false, data: { name, url, enabled } } }),
   refreshFilters: () => t.adguard('filtering/refresh', { method: 'POST', body: { whitelist: false } }),
 });
+
+function protections(t: Transport) {
+  const read = async (): Promise<AdguardProtections> => {
+    const [sb, pc, ss] = await Promise.all([
+      t.adguard<{ enabled?: boolean }>('safebrowsing/status'),
+      t.adguard<{ enabled?: boolean }>('parental/status'),
+      t.adguard<SafeSearchSettings>('safesearch/status'),
+    ]);
+    return { safeBrowsing: Boolean(sb.enabled), adultContent: Boolean(pc.enabled), safeSearch: Boolean(ss.enabled) };
+  };
+  const toggle = (path: string, on: boolean) => t.adguard(`${path}/${on ? 'enable' : 'disable'}`, { method: 'POST' });
+  return {
+    get: read,
+    /** Changes only what differs, then reads all three back. */
+    async set(values: Partial<AdguardProtections>, what = 'those protections') {
+      const now = await read();
+      return writeAndVerify(
+        async () => {
+          if (values.safeBrowsing !== undefined && values.safeBrowsing !== now.safeBrowsing)
+            await toggle('safebrowsing', values.safeBrowsing);
+          if (values.adultContent !== undefined && values.adultContent !== now.adultContent) await toggle('parental', values.adultContent);
+          if (values.safeSearch !== undefined && values.safeSearch !== now.safeSearch) {
+            // the settings call replaces the whole object, so keep the per-engine choices
+            const current = await t.adguard<SafeSearchSettings>('safesearch/status');
+            await t.adguard('safesearch/settings', { method: 'PUT', body: { ...current, enabled: values.safeSearch } });
+          }
+        },
+        read,
+        (kept) => Object.entries(values).every(([k, v]) => kept[k as keyof AdguardProtections] === v),
+        what,
+      );
+    },
+  };
+}

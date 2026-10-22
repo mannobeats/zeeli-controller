@@ -166,3 +166,16 @@ test('upload and download', async () => {
   answer({}, 404);
   await expect(t.download('/x', 'x')).rejects.toThrow('didn’t send the file');
 });
+
+test('execDirect reads the LuCI session from its page, then posts the escaped command to cgi-exec', async () => {
+  const sid = 'a'.repeat(32);
+  fetchMock.mockResolvedValueOnce({ text: async () => `L = new LuCI({ "sessionid": "${sid}", "token": "x" });` });
+  fetchMock.mockResolvedValueOnce({ status: 200, text: async () => 'Package: iperf3\n' });
+  const t = createGlTransport('/base');
+  expect(await t.execDirect('/usr/libexec/opkg-call', ['list-available'])).toBe('Package: iperf3\n');
+  expect(fetchMock.mock.calls[1]?.[0]).toBe('/base/cgi-bin/cgi-exec');
+  const sent = fetchMock.mock.calls[1]?.[1].body as URLSearchParams;
+  expect(Object.fromEntries(sent)).toEqual({ sessionid: sid, command: '/usr/libexec/opkg-call list-available' });
+  fetchMock.mockResolvedValueOnce({ status: 403, text: async () => '' });
+  await expect(t.execDirect('/bin/a b')).rejects.toThrow('The router didn’t allow that command.');
+});

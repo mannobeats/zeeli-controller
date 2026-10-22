@@ -8,8 +8,13 @@ export interface Transport {
   call<T = unknown>(module: string, fn: string, args?: object, timeoutMs?: number): Promise<T>;
   /** A raw ubus call, used for OpenWrt settings (UCI, network, file exec). */
   ubus<T = unknown>(object: string, method: string, args?: object, timeoutMs?: number): Promise<T>;
+  /**
+   * Run an ACL-allowed command through LuCI's cgi-exec and return its output as text.
+   * For output too large for ubus `file.exec`, which refuses anything over 4 MB.
+   */
+  execDirect(command: string, params?: string[], timeoutMs?: number): Promise<string>;
   /** AdGuard Home's HTTP API, which the router serves under /control/. */
-  adguard<T = unknown>(path: string, init?: { method?: 'GET' | 'POST'; body?: unknown }): Promise<T>;
+  adguard<T = unknown>(path: string, init?: { method?: 'GET' | 'POST' | 'PUT'; body?: unknown }): Promise<T>;
   upload(path: string, file: Blob, filename: string): Promise<void>;
   download(path: string, filename: string): Promise<Blob>;
   readonly session: Session;

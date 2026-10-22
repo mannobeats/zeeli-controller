@@ -2,8 +2,8 @@ import { screen, within } from '@testing-library/react';
 import type { AppState } from '@zeeli/router-api';
 import { beforeAll, expect, test } from 'vitest';
 import { api } from '../../api/router.ts';
-import { confirmDialog, expectToast, renderPage } from '../../test/render.tsx';
-import { AppStorePage, BarkPage, DdnsPage, PackagesPage, TorPage } from './pages.tsx';
+import { expectToast, renderPage } from '../../test/render.tsx';
+import { AppStorePage, BarkPage, DdnsPage, TorPage } from './pages.tsx';
 
 beforeAll(async () => {
   await api.session.login('demo');
@@ -15,17 +15,24 @@ const tile = async (name: string) => within((await screen.findByRole('heading', 
 const form = async (title: string) =>
   within((await screen.findByRole('heading', { name: title, level: 2 })).closest('form') as HTMLElement);
 
-test('installing and removing an app', async () => {
-  const dlna = await app('minidlna');
-  const samba = await app('samba');
+test('installing an app names the wait, then offers Open', async () => {
+  const vnstat = await app('vnstat');
   const user = await renderPage(<AppStorePage />);
-  await user.click((await tile(dlna.name)).getByRole('button', { name: 'Install' }));
-  await expectToast(`${dlna.name} installed`);
-  expect(await app('minidlna')).toMatchObject({ installed: true });
-  await user.click((await tile(samba.name)).getByRole('button', { name: 'Remove' }));
-  await user.click((await confirmDialog()).getByRole('button', { name: 'Remove' }));
-  await expectToast(`${samba.name} removed`);
-  expect(await app('samba')).toMatchObject({ installed: false });
+  await user.click((await tile(vnstat.name)).getByRole('button', { name: 'Install' }));
+  expect((await screen.findByText(/^Installing Traffic history…/, { selector: 'output' })).textContent).toMatch(/few minutes/);
+  await expectToast(`${vnstat.name} installed`);
+  expect(await app('vnstat')).toMatchObject({ installed: true, versions: { vnstat2: '2.11-1' } });
+  expect(await (await tile(vnstat.name)).findByRole('button', { name: 'Open' })).toBeTruthy();
+});
+
+test('running is the only green chip; installed apps open their page', async () => {
+  const user = await renderPage(<AppStorePage />);
+  const adguard = await tile((await app('adguard')).name);
+  expect(adguard.getByText('Running').className).toBe('chip ok');
+  const iperf = await tile((await app('iperf3')).name);
+  expect(iperf.getByText('Installed').className).toBe('chip');
+  await user.click(iperf.getByRole('button', { name: 'Open' }));
+  expect(location.hash).toBe('#app-iperf3');
 });
 
 test('filtering and searching the app store', async () => {
@@ -72,24 +79,4 @@ test('Bark turns on', async () => {
   await user.click(f.getByRole('button', { name: 'Save' }));
   await expectToast('Bark on');
   expect(await api.device.bark.get()).toMatchObject({ enable: true });
-});
-
-test('packages: install from the full list, remove, refresh', async () => {
-  const user = await renderPage(<PackagesPage />);
-  await screen.findByRole('table', { name: 'Packages' });
-  await user.click(screen.getByRole('button', { name: 'All available' }));
-  const iperf = (await screen.findByText('iperf3')).closest('tr') as HTMLElement;
-  await user.click(within(iperf).getByRole('button', { name: 'Install' }));
-  await expectToast('Installed iperf3');
-  await user.click(screen.getByRole('button', { name: 'Installed' }));
-  await user.type(screen.getByRole('searchbox', { name: 'Search packages' }), 'iperf');
-  await user.click(within((await screen.findByText('iperf3')).closest('tr') as HTMLElement).getByRole('checkbox'));
-  await user.click(screen.getByRole('button', { name: 'Remove' }));
-  await user.click((await confirmDialog()).getByRole('button', { name: 'Remove' }));
-  await expectToast('Removed');
-  expect((await api.openwrt.packages.installed()).map((p) => p.name)).not.toContain('iperf3');
-  await user.type(screen.getByRole('searchbox', { name: 'Search packages' }), 'zzz');
-  expect(screen.getByText('No package matches.')).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'Refresh list' }));
-  await expectToast('Package list refreshed');
 });

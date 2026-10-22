@@ -17,3 +17,16 @@ test('log lines become events, newest first, with repeats folded', () => {
   expect(events[2]?.detail).toBe('Got 192.168.8.41 as Maya-iPhone');
   expect(events[3]?.subject).toBe('02:5E:E1:00:00:AA');
 });
+
+test('repeats fold even with other events in between, and errors say what went wrong', () => {
+  const log = [
+    "Thu Oct 22 18:27:50 2026 authpriv.notice dropbear[1]: Pubkey auth succeeded for 'root' with ssh-ed25519 key",
+    'Thu Oct 22 18:27:56 2026 user.notice AdGuardHome[2]: 2026/10/22 22:27:56 [error] auth: opening token file failed',
+    "Thu Oct 22 18:27:57 2026 authpriv.notice dropbear[3]: Pubkey auth succeeded for 'root' with ssh-ed25519 key",
+    'Thu Oct 22 18:27:58 2026 user.notice AdGuardHome[2]: 2026/10/22 22:27:58 [error] auth: opening token file failed',
+  ].join('\n');
+  const events = parseActivity(log);
+  expect(events).toHaveLength(2);
+  expect(events.map((e) => e.count)).toEqual([2, 2]);
+  expect(events[0]?.detail).toBe('Reported “auth: opening token file failed”');
+});

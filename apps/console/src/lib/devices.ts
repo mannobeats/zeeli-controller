@@ -71,3 +71,15 @@ export const CATEGORIES: [Category, string][] = [
 ];
 export const categoryOf = (c: Pick<Client, 'link'>): Category =>
   c.link.medium === 'wired' ? 'wired' : c.link.band === '2.4' ? '24' : ((c.link.band ?? 'wired') as Category);
+
+// The firmware names a radio "2G", "5G", "6G" or "MLD" (the demo writes them lowercase).
+const RADIO: Record<string, { category: Category; link: string }> = {
+  '2G': { category: '24', link: '2.4' },
+  '5G': { category: '5', link: '5' },
+  '6G': { category: '6', link: '6' },
+  MLD: { category: 'mlo', link: 'mlo' },
+};
+/** Colour category for a radio band, the same one its clients get. */
+export const bandCategory = (band: string): Category => RADIO[band.toUpperCase()]?.category ?? 'wired';
+/** The `link.band` a client on this radio reports, so radios and clients can be matched. */
+export const bandLink = (band: string): string | undefined => RADIO[band.toUpperCase()]?.link;

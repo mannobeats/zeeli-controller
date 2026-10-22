@@ -1,89 +1,31 @@
-import {
-  type Icon,
-  IconActivity,
-  IconBell,
-  IconChartBar,
-  IconChartLine,
-  IconDeviceTv,
-  IconFolders,
-  IconGauge,
-  IconPower,
-  IconRefresh,
-  IconSearch,
-  IconShieldCheck,
-  IconShieldLock,
-  IconSpy,
-  IconWorldWww,
-} from '@tabler/icons-react';
+import { IconSearch } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import type { AppState, Package, TorConfig } from '@zeeli/router-api';
+import type { TorConfig } from '@zeeli/router-api';
 import { useState } from 'react';
 import { useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { useSettings } from '../../api/useSettings.ts';
+import { appPageId } from '../../app/nav.ts';
 import { navigate } from '../../app/useHashRoute.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { AdvancedGate } from '../../ui/AdvancedGate.tsx';
 import { Button } from '../../ui/Button.tsx';
-import { DataTable } from '../../ui/DataTable.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { Segmented, SwitchRow, TextField } from '../../ui/fields.tsx';
-import { Chip, Empty, KeyValues, Note, PageHeader, Panel, Stack } from '../../ui/Layout.tsx';
+import { Chip, Empty, KeyValues, PageHeader, Panel, Stack } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
-
-const APP_ICON: Record<string, Icon> = {
-  adguard: IconShieldCheck,
-  tailscale: IconShieldLock,
-  zerotier: IconWorldWww,
-  tor: IconSpy,
-  ddns: IconWorldWww,
-  bark: IconBell,
-  dpi: IconActivity,
-  samba: IconFolders,
-  minidlna: IconDeviceTv,
-  vnstat: IconChartLine,
-  nlbwmon: IconChartBar,
-  iperf3: IconGauge,
-  wol: IconPower,
-  banip: IconShieldLock,
-};
+import { AppIcon, useAppChange, WaitNote } from './common.tsx';
 
 /* ======================= App store ======================= */
 
 type Filter = 'all' | 'installed' | 'available';
 
 export function AppStorePage() {
-  const { toast, confirm } = useFeedback();
   const query = useQuery({ queryKey: ['apps'], queryFn: api.apps.list });
   const [filter, setFilter] = useState<Filter>('all');
   const [q, setQ] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
-  const install = useWrite((a: AppState) => api.apps.install(a), [['apps']]);
-  const remove = useWrite((a: AppState) => api.apps.remove(a), [['apps']]);
-
-  async function act(a: AppState) {
-    if (a.installed && !a.builtIn) {
-      if (
-        !(await confirm({
-          title: `Remove ${a.name}?`,
-          body: 'Its packages are uninstalled. Settings it saved may stay on the router.',
-          confirm: 'Remove',
-        }))
-      )
-        return;
-    }
-    setBusy(a.id);
-    try {
-      if (a.installed) await remove.mutateAsync(a);
-      else await install.mutateAsync(a);
-      toast(`${a.name} ${a.installed ? 'removed' : 'installed'}`);
-    } catch (err) {
-      toast(`Couldn’t ${a.installed ? 'remove' : 'install'} ${a.name}: ${errorMessage(err)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
+  const { run, busy } = useAppChange();
 
   return (
     <AdvancedGate title="App store">
@@ -99,6 +41,7 @@ export function AppStorePage() {
           return (
             <>
               <PageHeader title="App store" sub="Add features to your router. Apps run on the router itself, not in a cloud." />
+              <WaitNote busy={busy} />
               <div className="toolbar">
                 <Segmented
                   label="Show"
@@ -129,28 +72,37 @@ export function AppStorePage() {
                       {shown
                         .filter((a) => a.category === cat)
                         .map((a) => {
-                          const I = APP_ICON[a.id] ?? IconActivity;
+                          const open = () => navigate(appPageId(a));
                           return (
                             <article className="app-tile" key={a.id}>
-                              <span className={`app-icon app-${a.id}`}>
-                                <I size={22} stroke={1.75} />
-                              </span>
+                              <AppIcon id={a.id} />
                               <div className="app-text">
                                 <h3>{a.name}</h3>
                                 <p>{a.summary}</p>
                               </div>
                               <div className="app-actions">
-                                {a.builtIn ? (
-                                  <Chip>{a.running === true ? 'Running' : 'Built in'}</Chip>
+                                {a.running === true ? (
+                                  <Chip tone="ok">Running</Chip>
                                 ) : a.installed ? (
-                                  <Chip tone="ok">Installed</Chip>
+                                  <Chip>{a.builtIn ? 'Built in' : 'Installed'}</Chip>
                                 ) : null}
                                 <span className="grow" />
-                                {a.page && a.installed ? <Button onClick={() => navigate(a.page ?? 'apps')}>Open</Button> : null}
-                                {a.builtIn ? null : (
-                                  <Button variant={a.installed ? 'ghost' : 'strong'} busy={busy === a.id} onClick={() => act(a)}>
-                                    {a.installed ? 'Remove' : 'Install'}
-                                  </Button>
+                                {a.installed ? (
+                                  <Button onClick={open}>Open</Button>
+                                ) : (
+                                  <>
+                                    <Button variant="ghost" onClick={open}>
+                                      Details
+                                    </Button>
+                                    <Button
+                                      variant="strong"
+                                      busy={busy?.id === a.id}
+                                      disabled={busy !== null}
+                                      onClick={() => run(a, false)}
+                                    >
+                                      {busy?.id === a.id ? 'Installing…' : 'Install'}
+                                    </Button>
+                                  </>
                                 )}
                               </div>
                             </article>
@@ -387,145 +339,6 @@ export function DpiPage() {
                 ],
               ]}
             />
-          </Panel>
-        </>
-      )}
-    </Loaded>
-  );
-}
-
-/* ======================= Packages ======================= */
-
-export function PackagesPage() {
-  return (
-    <AdvancedGate title="Packages">
-      <PackagesBody />
-    </AdvancedGate>
-  );
-}
-
-function PackagesBody() {
-  const { toast, confirm } = useFeedback();
-  const installed = useQuery({ queryKey: ['packages'], queryFn: api.openwrt.packages.installed });
-  const [showAll, setShowAll] = useState(false);
-  const available = useQuery({ queryKey: ['packages-available'], queryFn: api.openwrt.packages.available, enabled: showAll });
-  const [q, setQ] = useState('');
-  const install = useWrite((name: string) => api.openwrt.packages.install(name), [['packages'], ['apps']]);
-  const remove = useWrite((names: string[]) => Promise.all(names.map((n) => api.openwrt.packages.remove(n))), [['packages'], ['apps']]);
-  const refresh = useWrite(() => api.openwrt.packages.refresh(), [['packages-available']]);
-  const names = new Set((installed.data ?? []).map((p) => p.name));
-  const needle = q.trim().toLowerCase();
-  const list: Package[] = (showAll ? (available.data ?? []) : (installed.data ?? [])).filter(
-    (p) => !needle || p.name.toLowerCase().includes(needle),
-  );
-
-  return (
-    <Loaded query={installed} title="Packages">
-      {(pkgs) => (
-        <>
-          <PageHeader
-            title="Packages"
-            sub={`${pkgs.length} installed. For curated apps, use the App store.`}
-            actions={
-              <Button
-                icon={<IconRefresh size={16} />}
-                busy={refresh.isPending}
-                onClick={() =>
-                  refresh.mutateAsync(undefined).then(
-                    () => toast('Package list refreshed'),
-                    (e) => toast(errorMessage(e)),
-                  )
-                }
-              >
-                Refresh list
-              </Button>
-            }
-          />
-          <Panel>
-            <div className="toolbar">
-              <Segmented
-                label="Show"
-                value={showAll ? 'all' : 'installed'}
-                onChange={(v) => setShowAll(v === 'all')}
-                options={[
-                  ['installed', 'Installed'],
-                  ['all', 'All available'],
-                ]}
-              />
-              <label className="search">
-                <IconSearch size={16} stroke={1.75} />
-                <input
-                  type="search"
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Package name"
-                  aria-label="Search packages"
-                />
-              </label>
-            </div>
-            {showAll && available.isLoading ? <Note>Loading the full package list…</Note> : null}
-            {list.length ? (
-              <DataTable
-                label="Packages"
-                rows={list.slice(0, 300)}
-                rowKey={(p) => p.name}
-                bulk={
-                  showAll
-                    ? undefined
-                    : [
-                        {
-                          label: 'Remove',
-                          danger: true,
-                          run: async (rows) => {
-                            if (
-                              !(await confirm({
-                                title: `Remove ${rows.length === 1 ? rows[0]?.name : `${rows.length} packages`}?`,
-                                body: 'Removing packages the firmware relies on can break features. Only remove what you installed yourself.',
-                                confirm: 'Remove',
-                              }))
-                            )
-                              return;
-                            await remove.mutateAsync(rows.map((r) => r.name)).then(
-                              () => toast('Removed'),
-                              (e) => toast(errorMessage(e)),
-                            );
-                          },
-                        },
-                      ]
-                }
-                columns={[
-                  { key: 'name', header: 'Package', phone: 'title', cell: (p) => <span className="name mono">{p.name}</span> },
-                  { key: 'ver', header: 'Version', phone: 'sub', cell: (p) => <span className="mono muted">{p.version}</span> },
-                  { key: 'desc', header: 'Description', cell: (p) => <span className="truncate">{p.description}</span> },
-                  {
-                    key: 'act',
-                    header: '',
-                    align: 'end',
-                    phone: 'end',
-                    cell: (p) =>
-                      names.has(p.name) ? (
-                        <Chip tone="ok">Installed</Chip>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          busy={install.isPending && install.variables === p.name}
-                          onClick={() =>
-                            install.mutateAsync(p.name).then(
-                              () => toast(`Installed ${p.name}`),
-                              (e) => toast(errorMessage(e)),
-                            )
-                          }
-                        >
-                          Install
-                        </Button>
-                      ),
-                  },
-                ]}
-              />
-            ) : (
-              <Empty>{needle ? 'No package matches.' : 'Nothing here.'}</Empty>
-            )}
-            {list.length > 300 ? <Note>Showing the first 300. Search to narrow the list.</Note> : null}
           </Panel>
         </>
       )}

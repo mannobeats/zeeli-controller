@@ -1,37 +1,34 @@
 import { useQuery } from '@tanstack/react-query';
-import { useClients } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { Empty, Grid, Panel } from '../../ui/Layout.tsx';
 
-const pct = (part: number, whole: number) => (whole ? `${((part / whole) * 100).toFixed(1)}%` : '0%');
+import { share, trimLeading, useDeviceName } from './names.ts';
 
 /** AdGuard Home's numbers: totals, queries over time, and the top lists. */
 export function DnsStats() {
   const stats = useQuery({ queryKey: ['adguard-stats'], queryFn: api.dns.adguardStats, refetchInterval: 30_000 });
-  const clients = useClients().data ?? [];
-  const nameOf = (ip: string) => clients.find((c) => c.ip === ip)?.name ?? ip;
+  const nameOf = useDeviceName();
   const s = stats.data;
   if (stats.isError) return <Empty>Couldn’t read AdGuard Home: {errorMessage(stats.error)}</Empty>;
-  if (!s)
-    return stats.isLoading ? (
-      <output className="panel skeleton" aria-busy="true" />
-    ) : (
-      <Empty>AdGuard Home isn’t answering. Turn it on in Apps → AdGuard Home.</Empty>
-    );
-  const max = Math.max(1, ...s.series);
+  if (!s) return <output className="panel skeleton" aria-busy="true" aria-label="Loading DNS statistics" />;
+  const from = trimLeading(s.series);
+  const series = s.series.slice(from);
+  const blockedSeries = s.blockedSeries.slice(from);
+  const unit = s.bucket === 'hour' ? 'hours' : 'days';
+  const max = Math.max(1, ...series);
   return (
     <>
-      <Panel title={`Last ${s.series.length} ${s.bucket === 'hour' ? 'hours' : 'days'}`}>
+      <Panel title={`Last ${series.length} ${unit}`}>
         <div className="figures">
           <Figure label="Queries" value={s.queries.toLocaleString()} />
-          <Figure label="Blocked" value={s.blocked.toLocaleString()} sub={pct(s.blocked, s.queries)} tone="bad" />
+          <Figure label="Blocked" value={s.blocked.toLocaleString()} sub={`${share(s.blocked, s.queries)} of queries`} tone="bad" />
           <Figure label="Malware and phishing" value={s.malware.toLocaleString()} />
           <Figure label="Average answer time" value={`${s.avgMs} ms`} />
         </div>
         <div className="qbars" role="img" aria-label={`Queries per ${s.bucket}, blocked in red`}>
-          {s.series.map((q, i) => {
-            const b = s.blockedSeries[i] ?? 0;
+          {series.map((q, i) => {
+            const b = blockedSeries[i] ?? 0;
             return (
               // biome-ignore lint/suspicious/noArrayIndexKey: one bar per time bucket, in order
               <div className="qbar" key={i} title={`${q.toLocaleString()} queries, ${b.toLocaleString()} blocked`}>
@@ -41,6 +38,12 @@ export function DnsStats() {
               </div>
             );
           })}
+        </div>
+        <div className="qaxis" aria-hidden>
+          <span>
+            {series.length} {unit} ago
+          </span>
+          <span>{s.bucket === 'hour' ? 'This hour' : 'Today'}</span>
         </div>
       </Panel>
       <div className="section-gap">

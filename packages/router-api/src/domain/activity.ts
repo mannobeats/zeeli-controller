@@ -59,10 +59,12 @@ const RULES: Rule[] = [
     /(sysupgrade|Image metadata|upgrade)/i,
     (_m, p) => (p === 'upgrade' ? { kind: 'firmware', subject: 'firmware', detail: 'Firmware check or install' } : null),
   ],
-  [/\[error\]/, (_m, p) => ({ kind: 'service.error', subject: p, detail: 'Reported an error' })],
+  [/\[error\]\s*(.*)/, (m, p) => ({ kind: 'service.error', subject: p, detail: `Reported “${clip((m[1] ?? '').trim() || 'an error')}”` })],
 ];
 
 type Found = Omit<ActivityEvent, 'time' | 'count'>;
+
+const clip = (text: string, max = 90) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
 /** The first rule that recognises `message`, with the subject filled in from a MAC or the program. */
 function classify(message: string, program: string): Found | null {
@@ -76,11 +78,13 @@ function classify(message: string, program: string): Found | null {
   return null;
 }
 
-const same = (a: Found, b: Found) => a.kind === b.kind && a.subject === b.subject && a.detail === b.detail;
+/** Identical events this close together read as one line with a count, even with others in between. */
+const FOLD_MS = 10 * 60_000;
 
-/** Parse logread output into events, newest first, folding identical neighbours. */
+/** Parse logread output into events, newest first, folding repeats of the same event. */
 export function parseActivity(log: string): ActivityEvent[] {
   const out: ActivityEvent[] = [];
+  const lastOf = new Map<string, ActivityEvent>();
   for (const line of log.split('\n')) {
     const m = LINE.exec(line);
     if (!m) continue;
@@ -88,13 +92,19 @@ export function parseActivity(log: string): ActivityEvent[] {
     const ev = classify(message, program);
     if (!ev) continue;
     const time = new Date(Number(year), MONTHS.indexOf(mon), Number(day), Number(hh), Number(mm), Number(ss));
-    const last = out.at(-1);
-    if (last && same(last, ev)) {
+    const key = `${ev.kind}|${ev.subject}|${ev.detail}`;
+    const last = lastOf.get(key);
+    if (last && time.getTime() - last.time.getTime() <= FOLD_MS) {
       last.count++;
       last.time = time;
-    } else out.push({ ...ev, time, count: 1 });
+    } else {
+      const next = { ...ev, time, count: 1 };
+      out.push(next);
+      lastOf.set(key, next);
+    }
   }
-  return out.reverse();
+  // a folded event takes its latest time, so order by that
+  return out.sort((a, b) => b.time.getTime() - a.time.getTime());
 }
 
 export const activity = (t: Transport) => ({

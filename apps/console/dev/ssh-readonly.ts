@@ -12,6 +12,7 @@ const READ_UBUS: Record<string, string[]> = {
   'luci-rpc': ['getDHCPLeases', 'getHostHints', 'getNetworkDevices', 'getBoardJSON'],
   'network.interface': ['dump', 'status'],
   session: ['access'],
+  luci: ['getInitList', 'getMountPoints'],
 };
 const READ_EXEC: [string, string][] = [
   ['/sbin/ip', '-4 route show table all'],
@@ -36,14 +37,16 @@ const ssh = (cmd: string) =>
     else waiting.push(go);
   });
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-const readBody = (req: IncomingMessage) =>
-  new Promise<{ id?: number; method?: string; params?: unknown[] }>((resolve) => {
+const readText = (req: IncomingMessage) =>
+  new Promise<string>((resolve) => {
     let data = '';
     req.on('data', (c: Buffer) => {
       data += c;
     });
-    req.on('end', () => resolve(JSON.parse(data || '{}')));
+    req.on('end', () => resolve(data));
   });
+const readBody = async (req: IncomingMessage) =>
+  JSON.parse((await readText(req)) || '{}') as { id?: number; method?: string; params?: unknown[] };
 const send = (res: ServerResponse, obj: unknown) => {
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(obj));
@@ -66,6 +69,15 @@ export function sshReadonly(): Plugin {
           res,
           out ? { jsonrpc: '2.0', id, ...JSON.parse(out) } : { jsonrpc: '2.0', id, error: { code: -32000, message: 'ssh failed' } },
         );
+      });
+      // LuCI's cgi-exec, for output too big for ubus (the package feed lists)
+      server.middlewares.use('/cgi-bin/cgi-exec', async (req, res) => {
+        const [command = '', ...params] = (new URLSearchParams(await readText(req)).get('command') ?? '').split(' ');
+        const out = READ_EXEC.some(([c, p]) => c === command && p === params.join(' '))
+          ? await ssh(`${command} ${params.map(quote).join(' ')}`)
+          : null;
+        res.statusCode = out === null ? 403 : 200;
+        res.end(out ?? '');
       });
       server.middlewares.use('/cgi-bin/luci/admin/ubus', async (req, res) => {
         const { id, params = [] } = await readBody(req);

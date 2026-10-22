@@ -168,7 +168,7 @@ function FirewallBody() {
                 {
                   key: 'owner',
                   header: 'Owner',
-                  cell: (r) => <Chip tone={r.origin === 'custom' ? 'brand' : undefined}>{ORIGIN[r.origin]}</Chip>,
+                  cell: (r) => <Chip>{ORIGIN[r.origin]}</Chip>,
                 },
                 {
                   key: 'on',

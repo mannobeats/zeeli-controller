@@ -3,7 +3,7 @@ import { type Radio, SECURITY, type WifiNetwork, type WifiRole } from '@zeeli/ro
 import { useState } from 'react';
 import { useClients, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
-import type { Category } from '../../lib/devices.ts';
+import { bandCategory, bandLink, type Category } from '../../lib/devices.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { BAND_LABEL } from '../../lib/format.ts';
 import { DataTable } from '../../ui/DataTable.tsx';
@@ -20,9 +20,7 @@ const ROLES: [WifiRole, string, string][] = [
   ['iot', 'IoT networks', 'For smart-home gear on its own subnet'],
 ];
 const bandLabel = (b: string) => BAND_LABEL[b] ?? b;
-const LINK_BAND: Record<string, string> = { '2g': '2.4', '5g': '5', '6g': '6' };
-const BAND_CAT: Record<string, Category> = { '2g': '24', '5g': '5', '6g': '6' };
-const categoryOfNet = (n: WifiNetwork): Category => (n.kind === 'mlo' ? 'mlo' : (BAND_CAT[n.bands[0] ?? ''] ?? '5'));
+const categoryOfNet = (n: WifiNetwork): Category => (n.kind === 'mlo' ? 'mlo' : bandCategory(n.bands[0] ?? ''));
 
 export default function WifiPage() {
   const query = useQuery({ queryKey: ['wifi'], queryFn: api.wifi.list });
@@ -39,7 +37,7 @@ export default function WifiPage() {
       (c) =>
         c.online &&
         c.link.medium === 'wifi' &&
-        (n.kind === 'mlo' ? c.link.band === 'mlo' : c.link.band === LINK_BAND[n.bands[0] ?? '']) &&
+        (n.kind === 'mlo' ? c.link.band === 'mlo' : c.link.band === bandLink(n.bands[0] ?? '')) &&
         c.link.guest === (n.role === 'guest'),
     ).length;
 

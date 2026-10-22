@@ -72,10 +72,12 @@ First screen: online through Ethernet 1 at 72.9 / 13.5 Mbps, and the path from t
 
 - `.page` is a two-column grid with one 16px gap. That gap is the only space between page
   blocks: no margins on panels, headers or notices.
-- Everything spans both columns except settings forms (`SettingsForm`), which pair up two per
-  row, so a form is never wider than half the page and its fields, switches and Save button
-  share the panel's edges. Below 1100px they stack.
-- `.section-gap` is `display: contents`: wrapping panels in it never adds space of its own.
+- Everything spans both columns except settings forms (`SettingsForm`): two forms next to each
+  other pair up in one row; a form with no form beside it takes the whole row. Fields,
+  switches and Save always share the panel's edges. Below 1100px they stack.
+- `.section-gap` and page-level `.stack` are `display: contents`: wrapping panels never adds
+  space or changes their width.
+- Panel titles never wrap; the note beside a title gives way.
 - A section can give its panel to the page (`panel: true` in `nav.ts`); the page renders its
   controls through `SectionPanel`, which falls back to inline on narrow screens. Clients uses
   this for its filters.
@@ -86,7 +88,14 @@ First screen: online through Ethernet 1 at 72.9 / 13.5 Mbps, and the path from t
 - Radius: 6 controls, 8 rows and menus, 12 panels and sheets.
 - Buttons: `primary` (blue, one per view), `default` (outlined), `ghost`, `danger` (red,
   names the action). No arrows or icons that repeat the label.
-- Chips only for a state that needs action or a fixed category; never a dot in a chip.
+- Chips only for a state or a fixed category; never a dot in a chip. One meaning per colour:
+  green is a live state (Running, Connected, Active, Latest); neutral is an attribute (Built in,
+  Installed, Reserved, Hidden, a rule's owner); red is blocked; amber needs action (an update).
+- The code font is for addresses, MACs, keys and raw output only. When there is no address,
+  the fallback is a word in the body font (`Address` in `ui/Layout.tsx`).
+- A reference to another page is a link to it, never "Section → Page" text.
+- Band colours come from one helper (`bandCategory` in `lib/devices.ts`) everywhere a radio
+  or a client's link is drawn; the firmware's band names vary in case.
 - Band swatches (10px rounded squares, 8px on topology cards) mark the connection category
   everywhere it appears. Never a coloured border or stripe on a card.
 - Checkboxes and radios are drawn with the tokens (one style, 16px); toggle chips (`ChipPicker`)

@@ -143,8 +143,8 @@ export const Row2 = ({ children }: { children: ReactNode }) => <div className="l
 
 export function WeekPicker({ value, onChange }: { value: number[]; onChange: (days: number[]) => void }) {
   return (
-    <fieldset className="week">
-      <legend className="sr-only">Days</legend>
+    <fieldset className="tags">
+      <legend>Days</legend>
       {DAYS.map(([d, label]) => (
         <label className="day" key={d}>
           <input

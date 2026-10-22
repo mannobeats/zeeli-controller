@@ -67,11 +67,15 @@ export function createMockTransport(options: { latencyMs?: number; password?: st
       const h = handlers[`ubus:${object}.${method}`];
       return (h ? h(state, args as Record<string, unknown>, { uptime: 0 }) : {}) as T;
     },
-    async adguard<T>(path: string) {
+    async execDirect(command, params = []) {
+      const r = (await this.ubus('file', 'exec', { command, params })) as { stdout?: string };
+      return r.stdout ?? '';
+    },
+    async adguard<T>(path: string, init?: { body?: unknown }) {
       await wait();
       guard();
       const h = handlers[`adguard:${path.split('?')[0]}`];
-      return (h ? h(state, {}, { uptime: 0 }) : {}) as T;
+      return (h ? h(state, (init?.body ?? {}) as Record<string, unknown>, { uptime: 0 }) : {}) as T;
     },
     async upload() {
       await wait();

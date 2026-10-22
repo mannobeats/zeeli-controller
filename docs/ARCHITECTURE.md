@@ -40,6 +40,7 @@ Domain modules do three jobs:
 | ---------------------------- | ---------------------------------------------------------- |
 | `call(module, fn, args)`     | GL.iNet firmware module calls (`clients.get_list`)         |
 | `ubus(object, method, args)` | Raw OpenWrt ubus calls (UCI, network, `file.exec`)         |
+| `execDirect(command, args)`  | LuCI cgi-exec, for output over ubus's 4 MB (feed lists)    |
 | `adguard(path, init)`        | AdGuard Home's HTTP API                                    |
 | `upload` / `download`        | Files, such as VPN profiles and backups                    |
 | `session`                    | Sign-in, liveness, sign-out, and the second OpenWrt unlock |
@@ -105,6 +106,9 @@ The build mode decides the transport. Vite defines `import.meta.env.VITE_TRANSPO
 
 Apps are listed in `APP_CATALOG` in `packages/router-api/src/domain/apps.ts`, and the App store page is built from it.
 1. Add an `AppDefinition` with an `id`, `name`, one-line `summary` and `category`. Mark it as `builtIn` (shipped with the firmware; `service` is its name in system status) or give it the opkg `packages` that install it.
-2. Give it an icon in `APP_ICON` in `apps/console/src/features/apps/pages.tsx`.
-3. If it has settings, set `page` to a page id and add that page as described above, under Apps, Installed in `nav.ts`.
-4. Add mock handlers so the demo can install it and show its settings.
+2. Give it an icon in `APP_ICON` in `apps/console/src/features/apps/common.tsx`.
+3. A built-in app with settings sets `page` to its own page id, added as described above under Apps, Installed in `nav.ts`.
+4. A package app gets the generic page `#app-<id>` (`AppPage.tsx`) and a menu entry under Add-ons with no extra code. Describe it in the definition: `service` (its `/etc/init.d` script, for Start/Stop and Start at boot), `fields` (UCI options as `config.section.option`, where the section is a name or a type), `records` (UCI sections to list, like shares), `needsDrive`, `usage` (steps; `{router}` becomes the LAN address) and `comingNext` (what it can't do yet, and why).
+5. Add mock handlers so the demo can install it and show its settings: the feed entry and init script in `mock/apps-handlers.ts`, the UCI config in `appConfigs()`.
+
+Packages are installed with opkg-call, which always exits 0 and reports `{code, stdout, stderr}`; `opkgResult` turns a non-zero code into a `RouterError` with opkg's last stderr line, and every install or remove reads the installed list back. Services go through `luci.getInitList` and `luci.setInitAction`, which the stock ACLs allow; procd's `rc` object is used instead when the session may call it, which is also the only way to read whether a service is running.

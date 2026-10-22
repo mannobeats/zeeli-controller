@@ -24,7 +24,7 @@ import { stateColumn } from '../../ui/columns.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { ChipPicker, Row2, SelectField, TextField } from '../../ui/fields.tsx';
-import { Chip, Empty, Note, PageHeader, Panel, Stack, ToneText } from '../../ui/Layout.tsx';
+import { Address, Chip, Empty, Note, PageHeader, Panel, Stack, ToneText } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
@@ -362,7 +362,7 @@ function DhcpBody() {
                       phone: 'end',
                       cell: (l) =>
                         isReserved(l.mac) ? (
-                          <Chip tone="brand">Reserved</Chip>
+                          <Chip>Reserved</Chip>
                         ) : (
                           <Button variant="ghost" onClick={() => run([l])}>
                             Reserve
@@ -476,7 +476,7 @@ function RoutesBody() {
                   bulk={[{ label: 'Delete', danger: true, run: removeRoutes }]}
                   columns={[
                     { key: 'dst', header: 'Destination', phone: 'title', cell: (r) => <span className="name mono">{r.target}</span> },
-                    { key: 'gw', header: 'Gateway', phone: 'sub', cell: (r) => <span className="mono">{r.gateway || 'On link'}</span> },
+                    { key: 'gw', header: 'Gateway', phone: 'sub', cell: (r) => <Address value={r.gateway} fallback="On link" /> },
                     { key: 'if', header: 'Interface', cell: (r) => ifaceLabel(r.interface) },
                     { key: 'metric', header: 'Metric', cell: (r) => <span className="num">{r.metric || '0'}</span> },
                     stateColumn(),
@@ -505,13 +505,14 @@ function RoutesBody() {
                     key: 'dst',
                     header: 'Destination',
                     phone: 'title',
-                    cell: (r) => <span className="name mono">{r.dst === 'default' ? 'Default (internet)' : r.dst}</span>,
+                    cell: (r) =>
+                      r.dst === 'default' ? <span className="name">Default (internet)</span> : <Address value={r.dst} className="name" />,
                   },
                   {
                     key: 'via',
                     header: 'Via',
                     phone: 'sub',
-                    cell: (r) => <span className="mono">{r.gateway ?? (r.scope === 'link' ? 'On link' : '—')}</span>,
+                    cell: (r) => <Address value={r.gateway} fallback={r.scope === 'link' ? 'On link' : '—'} />,
                   },
                   { key: 'if', header: 'Interface', cell: (r) => ifaceLabel(devIface(r.dev) ?? r.dev ?? '') },
                   { key: 'table', header: 'Table', cell: (r) => r.table ?? 'main' },

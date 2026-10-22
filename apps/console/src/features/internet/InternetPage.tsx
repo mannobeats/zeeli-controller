@@ -210,7 +210,7 @@ function SavedNetworks({ current }: { current: string | null }) {
               phone: 'title',
               cell: (n) => (
                 <span className="name">
-                  {n.ssid} {n.ssid === current ? <Chip tone="brand">Connected</Chip> : null}
+                  {n.ssid} {n.ssid === current ? <Chip tone="ok">Connected</Chip> : null}
                 </span>
               ),
             },

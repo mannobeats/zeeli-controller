@@ -88,3 +88,19 @@ test('at most three ssh sessions run at once', async () => {
   expect(ssh.commands).toHaveLength(5);
   expect(ssh.peak).toBe(3);
 });
+
+test('cgi-exec runs only the allowed reads and returns their raw output', async () => {
+  const exec = async (command: string) => {
+    const req = new EventEmitter() as IncomingMessage;
+    const res = { statusCode: 0, body: '', end: (s: string) => (res.body = s) };
+    const handled = (routes.get('/cgi-bin/cgi-exec') as Handler)(req, res as unknown as ServerResponse);
+    req.emit('data', Buffer.from(new URLSearchParams({ sessionid: '', command }).toString()));
+    req.emit('end');
+    await handled;
+    return res;
+  };
+  ssh.reply = 'Package: iperf3\n';
+  expect(await exec('/usr/libexec/opkg-call list-available')).toMatchObject({ statusCode: 200, body: 'Package: iperf3\n' });
+  expect(ssh.commands.at(-1)).toBe("/usr/libexec/opkg-call 'list-available'");
+  expect(await exec('/usr/libexec/opkg-call install x')).toMatchObject({ statusCode: 403 });
+});

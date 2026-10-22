@@ -1,4 +1,5 @@
 // Demo answers for the rest of the router. Invented values only.
+import { appConfigs, opkgCall } from './apps-handlers.ts';
 import type { MockState } from './seed.ts';
 import { SETTINGS } from './settings-data.ts';
 
@@ -85,25 +86,6 @@ const ovpnServer = (s: MockState) =>
     client_to_client: false,
   }));
 const ovpnUsers = (s: MockState) => keep<{ username: string }[]>(s, 'ovpn-users', () => []);
-const installedPackages = (s: MockState) =>
-  keep(s, 'packages', () => [
-    'adguardhome - 0.107.55-1',
-    'tailscale - 1.84.0-1',
-    'samba4-server - 4.18.8-1',
-    'wireguard-tools - 1.0.20210914-3',
-  ]);
-// opkg installs and removes change what list-installed reports
-const OPKG: Record<string, (s: MockState, name: string) => void> = {
-  install: (s, name) => {
-    installedPackages(s).push(`${name} - 1.0-1`);
-  },
-  remove: (s, name) => {
-    s.extra.set(
-      'packages',
-      installedPackages(s).filter((p) => !p.startsWith(`${name} - `)),
-    );
-  },
-};
 const wifiTimers = (s: MockState) =>
   keep<Args[]>(s, 'wifi-timers', () =>
     ['2G', '5G', '6G', 'MLD'].map((band) => ({
@@ -181,6 +163,7 @@ const wifiState = (s: MockState) =>
 
 const sections = (s: MockState) =>
   keep(s, 'uci', () => ({
+    ...appConfigs(),
     firewall: {
       zlan: {
         '.name': 'zlan',
@@ -752,7 +735,8 @@ export const moreHandlers: Record<string, Handler> = {
   'mesh.get_onbd_scan_status': (_s) => ({ status: 'done', nodes: [{ mac: '02:5E:E1:77:00:01', model: 'GL-MT6000', signal: -58 }] }),
 
   /* OpenWrt through LuCI */
-  'ubus:session.access': (_s) => ({ access: true }),
+  // like the stock LuCI ACLs: everything the console uses, but not procd's `rc`
+  'ubus:session.access': (_s, a) => ({ access: a.object !== 'rc' }),
   'ubus:uci.get': (s, a) => {
     const conf = (sections(s) as Record<string, Record<string, Record<string, unknown>>>)[String(a.config)] ?? {};
     const values = Object.fromEntries(Object.entries(conf).filter(([, v]) => !a.type || v['.type'] === a.type));
@@ -801,17 +785,7 @@ export const moreHandlers: Record<string, Handler> = {
           '100.64.0.0/10 dev tailscale0 table 52',
         ].join('\n'),
       };
-    if (params[0] === 'list-installed') return { code: 0, stdout: installedPackages(s).join('\n') };
-    OPKG[String(params[0])]?.(s, String(params[1]));
-    if (params[0] === 'list-available')
-      return {
-        code: 0,
-        stdout: [
-          'minidlna - 1.3.2-1 - DLNA media server',
-          'vnstat2 - 2.11-1 - Traffic monitor',
-          'iperf3 - 3.16-1 - Throughput testing',
-        ].join('\n'),
-      };
+    if (a.command === '/usr/libexec/opkg-call') return { code: 0, stdout: opkgCall(s, params) };
     return { code: 0, stdout: '' };
   },
   'ubus:luci-rpc.getDHCPLeases': (s, a) =>

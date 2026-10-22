@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createRouterApi, type RouterApi } from '../api.ts';
 import { createMockTransport } from '../mock/transport.ts';
+import { APP_CATALOG } from './apps.ts';
 import { bedtimeAt, type Profile } from './family.ts';
 
 let api: RouterApi;
@@ -20,7 +21,7 @@ function one<T>(list: T[], ok: (x: T) => boolean): T {
 describe('system and device', () => {
   test('status reads services, clients and feature flags', async () => {
     const s = await api.system.status();
-    expect(s.services).toContainEqual({ name: 'adguardhome', running: true });
+    expect(s.services).toContainEqual({ name: 'adguard', running: true });
     expect(s.clients.wired + s.clients.wireless).toBeGreaterThan(0);
     expect(s.flags).toMatchObject({ ipv6: true, sqm: false });
     expect(s.tzoffset).toBe('-0400');
@@ -42,7 +43,8 @@ describe('system and device', () => {
   test('apps know what is installed and running', async () => {
     const list = await api.apps.list();
     const app = (pkg: string) => one(list, (a) => String(a.packages) === pkg);
-    expect([app('samba4-server').installed, app('minidlna').installed]).toEqual([true, false]);
+    expect([app('iperf3').installed, app('vnstat2').installed]).toEqual([true, false]);
+    expect(app('iperf3').versions).toEqual({ iperf3: '3.16-1' });
     expect(list.some((a) => a.running === true)).toBe(true);
   });
 });
@@ -196,11 +198,42 @@ describe('OpenWrt', () => {
     expect((await settle(api.openwrt.firewall())).zones).toHaveLength(3);
   });
 
-  test('packages parse from opkg', async () => {
+  test('packages parse from opkg, and installs are read back', async () => {
     const installed = await settle(api.openwrt.packages.installed());
     expect(one(installed, (p) => p.name === 'tailscale').version).toBe('1.84.0-1');
-    expect(one(await settle(api.openwrt.packages.available()), (p) => p.name === 'iperf3').description).toBe('Throughput testing');
-    await expect(settle(api.openwrt.packages.install('iperf3'))).resolves.toBe('');
+    const available = await settle(api.openwrt.packages.available());
+    expect(one(available, (p) => p.name === 'iperf3').description).toMatch(/^Iperf is a modern alternative/);
+    await settle(api.openwrt.packages.install(['vnstat2']));
+    expect((await settle(api.openwrt.packages.installed())).map((p) => p.name)).toContain('vnstat2');
+    await expect(settle(api.openwrt.packages.install(['nope']))).rejects.toThrow('opkg_install_cmd: Cannot install package nope.');
+    await settle(api.openwrt.packages.upgrade(one(available, (p) => p.name === 'tailscale')));
+    expect(one(await settle(api.openwrt.packages.installed()), (p) => p.name === 'tailscale').version).toBe('1.86.2-1');
+    await settle(api.openwrt.packages.remove(['vnstat2']));
+    expect((await settle(api.openwrt.packages.installed())).map((p) => p.name)).not.toContain('vnstat2');
+  });
+
+  test('app services go through LuCI when rc is not allowed', async () => {
+    expect(await settle(api.apps.service('minidlna'))).toEqual({ enabled: true, running: null });
+    expect(await settle(api.apps.service('vnstat'))).toBeNull();
+    expect(await settle(api.apps.serviceAction('samba4', 'enable'))).toEqual({ enabled: true, running: null });
+    await expect(settle(api.apps.serviceAction('vnstat', 'start'))).rejects.toThrow('The router couldn’t start vnstat.');
+  });
+
+  test('app settings are read from UCI, written and read back', async () => {
+    const dlna = one(APP_CATALOG, (a) => a.id === 'minidlna');
+    const before = await settle(api.apps.config(dlna));
+    expect(before.values).toEqual({
+      'minidlna.config.enabled': false,
+      'minidlna.config.friendly_name': 'Zeeli DLNA Server',
+      'minidlna.config.media_dir': ['/tmp/mountd/disk1_part1'],
+    });
+    const after = await settle(
+      api.apps.saveConfig(dlna, { 'minidlna.config.enabled': true, 'minidlna.config.media_dir': ['/mnt/a', '/mnt/b'] }),
+    );
+    expect(after.values).toMatchObject({ 'minidlna.config.enabled': true, 'minidlna.config.media_dir': ['/mnt/a', '/mnt/b'] });
+    const samba = await settle(api.apps.config(one(APP_CATALOG, (a) => a.id === 'samba')));
+    expect(samba).toMatchObject({ values: { 'nas.conf.samba_enable': false, 'samba4.samba.workgroup': 'WORKGROUP' }, records: [] });
+    expect(await settle(api.apps.drives())).toEqual([]);
   });
 
   test('parental pauses come back as firewall rules', async () => {

@@ -4,7 +4,7 @@ import { UPLINKS } from '@zeeli/router-api';
 import { LIVE, useClients, useInfo, useStatus } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { navigate } from '../../app/useHashRoute.ts';
-import { CATEGORIES, categoryOf } from '../../lib/devices.ts';
+import { bandCategory, bandLink, CATEGORIES, categoryOf } from '../../lib/devices.ts';
 import { BAND_LABEL, bytes, connectedFor, duration, plural, rate, rateText, signal } from '../../lib/format.ts';
 import { useSamples } from '../../lib/useSamples.ts';
 import { DataTable } from '../../ui/DataTable.tsx';
@@ -237,13 +237,10 @@ function RouterHealth({ status, fan }: { status: RouterStatus; fan: { speed: num
   );
 }
 
-const BAND_CAT: Record<string, string> = { '2G': '24', '5G': '5', '6G': '6', MLD: 'mlo' };
-const LINK_BAND: Record<string, string> = { '2G': '2.4', '5G': '5', '6G': '6', MLD: 'mlo' };
-
 function Radios({ status, clients }: { status: RouterStatus; clients: Client[] }) {
   const nets = status.wifi.filter((w) => w.up && !w.iot);
   const count = (band: string, guest: boolean) =>
-    clients.filter((c) => c.link.medium === 'wifi' && c.link.band === LINK_BAND[band] && c.link.guest === guest).length;
+    clients.filter((c) => c.link.medium === 'wifi' && c.link.band === bandLink(band) && c.link.guest === guest).length;
   return (
     <Panel
       title="WiFi"
@@ -256,7 +253,7 @@ function Radios({ status, clients }: { status: RouterStatus; clients: Client[] }
       {nets.length ? (
         nets.map((w) => (
           <div className="radio-row" key={w.name}>
-            <span className={`swatch cat-${BAND_CAT[w.band] ?? 'wired'}`} />
+            <Swatch category={bandCategory(w.band)} />
             <span className="band">
               {BAND_LABEL[w.band] ?? w.band}
               {w.guest ? ' guest' : ''}
@@ -283,7 +280,7 @@ function Services({
 }) {
   const svc = (n: string) => status.services.find((x) => x.name === n)?.running ?? false;
   const rows: [string, boolean, string, string?][] = [
-    ['AdGuard Home', adguardOn ?? svc('adguardhome'), 'adguard'],
+    ['AdGuard Home', adguardOn ?? svc('adguard'), 'adguard'],
     ['VPN client', vpn?.enabled ?? false, 'tunnels', vpn && !vpn.tunnels.length ? 'No tunnels yet' : undefined],
     ['Tailscale', svc('tailscale'), 'tailscale'],
     ['WireGuard server', svc('wgserver'), 'wgserver'],

@@ -11,6 +11,7 @@ import {
   IconSitemap,
   IconWorldLongitude,
 } from '@tabler/icons-react';
+import { APP_CATALOG } from '@zeeli/router-api';
 
 export interface Page {
   id: string;
@@ -32,6 +33,14 @@ export interface Section {
   panel?: boolean;
   groups: Group[];
 }
+
+/** Where an app opens: its own page, or the generic app page `app-<id>`. */
+export const appPageId = (a: { id: string; page?: string }) => a.page ?? `app-${a.id}`;
+const ADD_ONS: Page[] = APP_CATALOG.filter((a) => !a.page).map((a) => ({
+  id: appPageId(a),
+  title: a.name,
+  keywords: `${(a.packages ?? []).join(' ')} ${a.category}`.toLowerCase(),
+}));
 
 /** The whole information architecture. Order here is order on screen. */
 export const SECTIONS: Section[] = [
@@ -167,7 +176,7 @@ export const SECTIONS: Section[] = [
     groups: [
       { pages: [{ id: 'apps', title: 'App store', keywords: 'install plugins' }] },
       {
-        label: 'Installed',
+        label: 'Built in',
         pages: [
           { id: 'adguard', title: 'AdGuard Home' },
           { id: 'tor', title: 'Tor' },
@@ -176,6 +185,7 @@ export const SECTIONS: Section[] = [
           { id: 'dpi', title: 'App detection', keywords: 'dpi signatures' },
         ],
       },
+      { label: 'Add-ons', pages: ADD_ONS },
       { label: 'Advanced', pages: [{ id: 'packages', title: 'Packages', keywords: 'opkg' }] },
     ],
   },

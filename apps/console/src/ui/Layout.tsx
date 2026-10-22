@@ -91,3 +91,14 @@ export function Meter({ value, warnAt = 0.85 }: { value: number; warnAt?: number
     </>
   );
 }
+
+/** An address in the code font; when there isn't one, the fallback reads as a plain word. */
+export const Address = ({
+  value,
+  fallback = '—',
+  className,
+}: {
+  value: string | null | undefined;
+  fallback?: string;
+  className?: string;
+}) => (value ? <span className={`mono${className ? ` ${className}` : ''}`}>{value}</span> : <span className="muted">{fallback}</span>);

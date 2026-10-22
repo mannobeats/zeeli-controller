@@ -1,3 +1,5 @@
+import { adguardHandlers } from './adguard-handlers.ts';
+import { appsHandlers } from './apps-handlers.ts';
 import { moreHandlers } from './more-handlers.ts';
 import type { MockState } from './seed.ts';
 
@@ -13,7 +15,7 @@ const system: Record<string, Handler> = {
     const online = s.clients.filter((c) => c.online);
     return {
       service: [
-        { name: 'adguardhome', status: 1 },
+        { name: 'adguard', status: 1 },
         { name: 'tailscale', status: 1 },
         { name: 'wgserver', status: 0 },
         { name: 'ovpnserver', status: 0 },
@@ -151,4 +153,11 @@ const networks: Record<string, Handler> = {
   },
 };
 
-export const handlers: Record<string, Handler> = { ...moreHandlers, ...system, ...clients, ...networks };
+export const handlers: Record<string, Handler> = {
+  ...moreHandlers,
+  ...adguardHandlers,
+  ...appsHandlers,
+  ...system,
+  ...clients,
+  ...networks,
+};

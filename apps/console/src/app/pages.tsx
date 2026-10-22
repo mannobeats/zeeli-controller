@@ -1,4 +1,6 @@
+import { APP_CATALOG } from '@zeeli/router-api';
 import { type ComponentType, type LazyExoticComponent, lazy } from 'react';
+import { appPageId } from './nav.ts';
 
 type Loader = () => Promise<Record<string, ComponentType>>;
 /** Lazy-load `name` from a feature module, so each area loads on first visit. */
@@ -59,7 +61,11 @@ export const PAGE_COMPONENTS: Record<string, LazyExoticComponent<ComponentType>>
   ddns: from(apps, 'DdnsPage'),
   bark: from(apps, 'BarkPage'),
   dpi: from(apps, 'DpiPage'),
-  packages: from(apps, 'PackagesPage'),
+  packages: from(() => import('../features/apps/PackagesPage.tsx'), 'PackagesPage'),
+  // package apps share one page, which reads the app from the route
+  ...Object.fromEntries(
+    APP_CATALOG.filter((a) => !a.page).map((a) => [appPageId(a), from(() => import('../features/apps/AppPage.tsx'), 'AppPage')]),
+  ),
 
   device: from(system, 'DevicePage'),
   firmware: from(system, 'FirmwarePage'),

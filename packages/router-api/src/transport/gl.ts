@@ -44,12 +44,17 @@ const setSid = (sid: string) => {
   document.cookie = `Admin-Token=${sid}; path=/; SameSite=Strict${location.protocol === 'https:' ? '; Secure' : ''}`;
 };
 
-async function post<T>(url: string, init: RequestInit, timeoutMs: number): Promise<T> {
+async function post<T>(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  read: (res: Response) => Promise<unknown> = (res) => res.json(),
+): Promise<T> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, { ...init, method: 'POST', signal: ctrl.signal, credentials: 'same-origin' });
-    return (await res.json()) as T;
+    return (await read(res)) as T;
   } catch (e) {
     if (e instanceof DOMException && e.name === 'AbortError') throw new RouterError('timeout', 'The router took too long to answer.');
     throw new RouterError('offline', 'Can’t reach the router.');
@@ -108,6 +113,31 @@ export function createGlTransport(base = ''): Transport {
     return (data ?? {}) as T;
   }
 
+  // LuCI's cgi-exec takes the LuCI session id as a form field, and the session cookie is
+  // HttpOnly, so it is read from the env LuCI renders into its own pages.
+  let luciSid = '';
+  async function execDirect(command: string, params: string[] = [], timeoutMs = DEFAULT_TIMEOUT) {
+    if (!luciSid) {
+      const page = await fetch(`${base}/cgi-bin/luci/admin/status/overview`, { credentials: 'same-origin' })
+        .then((r) => r.text())
+        .catch(() => '');
+      luciSid = /"sessionid"\s*:\s*"([0-9a-f]{32})"/.exec(page)?.[1] ?? '';
+    }
+    // cgi-exec splits the command on unescaped whitespace, as LuCI's fs.exec_direct sends it
+    const cmd = [command, ...params].map((p) => p.replace(/\\/g, '\\\\').replace(/(\s)/g, '\\$1')).join(' ');
+    const res = await post<{ status: number; text: string }>(
+      `${base}/cgi-bin/cgi-exec`,
+      { body: new URLSearchParams({ sessionid: luciSid, command: cmd }) },
+      timeoutMs,
+      async (r) => ({ status: r.status, text: await r.text() }),
+    );
+    if (res.status !== 200) {
+      luciSid = '';
+      throw new RouterError('failed', res.status === 403 ? 'The router didn’t allow that command.' : `The router answered ${res.status}.`);
+    }
+    return res.text;
+  }
+
   const session: Session = {
     signedIn: () => sid() !== '',
     async login(password) {
@@ -146,6 +176,7 @@ export function createGlTransport(base = ''): Transport {
       }
     },
     async unlockAdvanced(password) {
+      luciSid = '';
       await fetch(`${base}/cgi-bin/luci/`, {
         method: 'POST',
         credentials: 'same-origin',
@@ -165,6 +196,7 @@ export function createGlTransport(base = ''): Transport {
     session,
     call: (module, fn, args = {}, timeoutMs) => rpc('call', [sid(), module, fn, args], timeoutMs),
     ubus,
+    execDirect,
     async adguard(path, init) {
       const res = await fetch(`${base}/control/${path}`, {
         method: init?.method ?? 'GET',

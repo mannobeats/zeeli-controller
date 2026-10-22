@@ -1,0 +1,19 @@
+{
+  "zeeli-controller": {
+    "description": "Zeeli Controller: service state and the few app commands the console runs",
+    "read": {
+      "ubus": {
+        "rc": ["list"]
+      }
+    },
+    "write": {
+      "ubus": {
+        "rc": ["init"]
+      },
+      "file": {
+        "/usr/bin/iperf3 -s -1 -D": ["exec"],
+        "/usr/bin/etherwake -i br-lan *": ["exec"]
+      }
+    }
+  }
+}

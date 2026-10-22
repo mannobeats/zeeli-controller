@@ -5,6 +5,7 @@ import { type ReactNode, useState } from 'react';
 import { useInfo, useStatus, useWrite } from '../../api/queries.ts';
 import { api, isDemo } from '../../api/router.ts';
 import { useSettings } from '../../api/useSettings.ts';
+import { navigate } from '../../app/useHashRoute.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { BAND_LABEL, bytes, duration } from '../../lib/format.ts';
 import { Button } from '../../ui/Button.tsx';
@@ -600,7 +601,15 @@ export function LogsPage() {
             />
           </label>
         </div>
-        <pre className="log">{log.isLoading ? 'Loading…' : lines.length ? lines.slice(-800).join('\n') : 'Nothing logged.'}</pre>
+        <pre
+          className="log"
+          // the newest lines are the ones people come for: open at the bottom
+          ref={(el) => {
+            if (el) el.scrollTop = el.scrollHeight;
+          }}
+        >
+          {log.isLoading ? 'Loading…' : lines.length ? lines.slice(-800).join('\n') : 'Nothing logged.'}
+        </pre>
         <Note>
           {lines.length} lines{lines.length > 800 ? ', showing the last 800' : ''}.
         </Note>
@@ -644,7 +653,7 @@ export function AdminPage() {
           />
           <TextField label="New password again" type="password" value={v.again} onChange={(x) => form.set('again', x)} />
         </SettingsForm>
-        <Panel title="LuCI" actions={luci.data ? <Chip tone="ok">Installed</Chip> : <span className="tone-off">Not installed</span>}>
+        <Panel title="LuCI" actions={luci.data ? <Chip>Installed</Chip> : <span className="tone-off">Not installed</span>}>
           <Note>OpenWrt’s own web interface. This console already uses it underneath for firewall rules, routes, leases and packages.</Note>
           <div className="row-actions start">
             {luci.data ? (
@@ -667,7 +676,13 @@ export function AdminPage() {
             )}
           </div>
         </Panel>
-        <Note>Ports for the admin pages and SSH, and access from the internet, are in Security → Remote management.</Note>
+        <Note>
+          Ports for the admin pages and SSH, and access from the internet, are in{' '}
+          <button type="button" className="link" onClick={() => navigate('remote')}>
+            Remote management
+          </button>
+          .
+        </Note>
       </Stack>
     </>
   );

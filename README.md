@@ -85,7 +85,13 @@ The console builds to `apps/console/dist` as a static bundle with relative paths
 ROUTER_SSH=root@192.168.8.1 pnpm deploy:router
 ```
 
-This builds the console and copies it to `/www/zeeli` on the router over SSH (key access required), then prints the address: `https://192.168.8.1/zeeli/`. GL.iNet's own panel, LuCI and SSH keep working beside it. Sign in with the router's admin password; the session is shared with the stock panel. To remove it: `ssh root@192.168.8.1 rm -rf /www/zeeli`.
+This builds the console and copies it to `/www/zeeli` on the router over SSH (key access required), then prints the address: `https://192.168.8.1/zeeli/`. GL.iNet's own panel, LuCI and SSH keep working beside it. Sign in with the router's admin password; the session is shared with the stock panel.
+
+It also installs one permission file, [`tools/router/zeeli-controller.acl.json`](tools/router/zeeli-controller.acl.json), which lets the admin session see whether services are running and start or stop them, start a one-test iperf3 server, and send Wake on LAN packets. Nothing else. To remove everything:
+
+```sh
+ssh root@192.168.8.1 'rm -rf /www/zeeli /usr/share/rpcd/acl.d/zeeli-controller.json && /etc/init.d/rpcd reload'
+```
 
 A firmware upgrade that doesn't keep settings removes the folder; run the command again afterwards.
 

@@ -75,6 +75,7 @@ function buildGraph(
   host: string,
   lanIp: string,
   uplink: string,
+  uplinkSub = 'Active uplink',
 ): { nodes: TopoNode[]; edges: Edge[] } {
   const nodes: TopoNode[] = [];
   const edges: Edge[] = [];
@@ -91,7 +92,7 @@ function buildGraph(
   const core = (id: string, x: number, data: CoreData): TopoNode => ({ id, type: 'core', ...NODE, position: { x, y: mid }, data });
 
   nodes.push(core('internet', 0, { kind: 'internet', title: 'Internet', sub: '', icon: IconWorld }));
-  nodes.push(core('uplink', 260, { kind: 'uplink', title: uplink, sub: 'Active uplink', icon: IconNetwork }));
+  nodes.push(core('uplink', 260, { kind: 'uplink', title: uplink, sub: uplinkSub, icon: IconNetwork }));
   nodes.push(core('router', 520, { kind: 'router', title: host, sub: lanIp, icon: IconRouter }));
   edges.push({ id: 'e-i-u', source: 'internet', target: 'uplink', animated: true, className: 'topo-edge live' });
   edges.push({ id: 'e-u-r', source: 'uplink', target: 'router', animated: true, className: 'topo-edge live' });
@@ -205,11 +206,15 @@ function useGraph(showOffline: boolean) {
   const status = useStatus().data;
   const nets = useQuery({ queryKey: ['networks'], queryFn: api.networks.list });
 
-  const uplink = UPLINKS.find((u) => status?.uplinks.some((x) => x.interface === u.id && x.up))?.name ?? 'No uplink';
+  const active = UPLINKS.find((u) => status?.uplinks.some((x) => x.interface === u.id && x.up));
+  const uplink = active?.name ?? 'No uplink';
+  // a repeater uplink is named by the network it joined, like on the dashboard
+  const rep = useQuery({ queryKey: ['repeater'], queryFn: api.internet.repeater, enabled: active?.id === 'wwan' }).data;
+  const uplinkSub = rep?.connected ? `${rep.ssid}${rep.signal == null ? '' : ` · ${String(rep.signal).replace('-', '−')} dBm`}` : undefined;
   const shown = showOffline ? clients : clients.filter((c) => c.online);
   const graph = useMemo(
-    () => buildGraph(shown, nets.data ?? [], info?.hostname ?? 'Router', status?.lanIp ?? '', uplink),
-    [shown, nets.data, info?.hostname, status?.lanIp, uplink],
+    () => buildGraph(shown, nets.data ?? [], info?.hostname ?? 'Router', status?.lanIp ?? '', uplink, uplinkSub),
+    [shown, nets.data, info?.hostname, status?.lanIp, uplink, uplinkSub],
   );
   return { clients, nets: nets.data ?? [], graph, ready: Boolean(nets.data && clientsQuery.data) };
 }
