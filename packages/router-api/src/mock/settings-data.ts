@@ -1,0 +1,93 @@
+// Demo values for every get/set settings pair, keyed "module.get" -> [set fn, initial value].
+// A write merges into the stored value, so the read-back check behaves like a real router.
+
+export const SETTINGS: Record<string, [set: string, value: Record<string, unknown>]> = {
+  'repeater.get_config': ['set_config', { auto: true, lock_band: '', smart_reconnect: true, dfs_support: true }],
+  'cable.get_config': ['set_config', { protocol: 'dhcp' }],
+  'firewall.get_dmz': ['set_dmz', { enabled: false, dest_ip: '', priority: true }],
+  'dpi.get_content_protection': [
+    'set_content_protection',
+    { enable: true, category_list: ['malware', 'adult'], app_list: [], domain_list: [] },
+  ],
+  'firewall.get_wan_access': [
+    'set_wan_access',
+    { enable_https: false, enable_ssh: false, enable_ping: false, enable_whitelist: false, whitelist: [] },
+  ],
+  'local-access.get_config': [
+    'set_config',
+    {
+      http_port: 80,
+      https_port: 443,
+      redirect_https: true,
+      ssh_enabled: true,
+      ssh_port: 22,
+      session_timeout: 1800,
+      luci_http_port: 8080,
+      luci_https_port: 8443,
+      luci_redirect_https: true,
+    },
+  ],
+  'dns.get_config': [
+    'set_config',
+    {
+      mode: 'secure',
+      manual_list: ['1.1.1.1', '1.0.0.1'],
+      server_auto: ['192.168.1.1'],
+      provider: 'quad9',
+      proto: 'dot',
+      servers_list: ['Recommended'],
+      nextdns_id: '',
+      controld_type: 1,
+      controld_id: '',
+      rebind_protection: true,
+      force_dns: true,
+      override_vpn: true,
+    },
+  ],
+  'adguardhome.get_config': ['set_config', { enabled: true, dns_enabled: true }],
+  'wg-server.get_setting': ['set_setting', { masq: true, local_access: true, client_to_client: false }],
+  'ovpn-server.get_setting': ['set_setting', { masq: true, local_access: false }],
+  'tailscale.get_config': [
+    'set_config',
+    { enabled: true, lan_enabled: true, lan_ip: '192.168.8.0/24', wan_enabled: false, run_exit_node: false, masq: true },
+  ],
+  'zerotier.get_config': ['set_config', { enabled: false, lan_enabled: false, wan_enabled: false }],
+  'tor.get_config': ['set_config', { enable: false, manual: false, countries: [] }],
+  'fan.get_config': ['set_config', { temperature: 75, warn_temperature: 90 }],
+  'led.get_config': ['set_config', { led_enable: true }],
+  'system.get_usb_config': ['set_usb_config', { protocol: 'usb3' }],
+  'system.get_timezone_config': [
+    'set_timezone_config',
+    { zonename: 'America/New_York', timezone: 'EST5EDT,M3.2.0,M11.1.0', autotimezone_enabled: true, tzoffset: '-0400' },
+  ],
+  'ddns.get_config': ['set_config', { enable_ddns: false, device_id: 'demo1234' }],
+  'bark.get_config': ['set_config', { enable: false, ipv6_enable: false }],
+  'upgrade.get_config': ['set_config', { upgrade_enable: true, prompt: true }],
+  'timer.get_reboot': ['set_reboot', { enable: false, hour: '03', min: '00', week: [0, 1, 2, 3, 4, 5, 6] }],
+  'timer.get_led': [
+    'set_led',
+    { enable: true, week: [0, 1, 2, 3, 4, 5, 6], turnoff_hour: '22', turnoff_min: '30', turnon_hour: '07', turnon_min: '00' },
+  ],
+  'ipv6.get_ipv6': ['set_ipv6', { enable: true, lan_mode: 'nat6', lan_dns_mode: true }],
+  'igmp.get_config': ['set_config', { enable: true, version: 3 }],
+  'network.get_netnat_config': [
+    'set_netnat_config',
+    { enable: true, dpi_enabled: true, conflict_features: ['QoS', 'Parental control app blocking'] },
+  ],
+  'network.get_advance_config': ['set_advance_config', { nat_enable: 1, sip_enable: 0 }],
+  'edgerouter.get_config': ['set_config', { enable: false, ignore: false }],
+  'mesh.get_config': ['set_config', { enabled: false, mode: 'controller' }],
+  'flow_statistics.get_statistics_rule': ['set_statistics_rule', { enable: true, type: 'app', time: 'week' }],
+  'dpi.get_qos': [
+    'set_qos',
+    {
+      enable: false,
+      download: '900',
+      upload: '40',
+      high: ['meeting', 'game'],
+      middle: ['education', 'work', 'webpage', 'other'],
+      low: ['social_entertainment', 'shopping'],
+    },
+  ],
+  'sqm.get_config': ['set_config', { enable: false, download: '850', upload: '35', qdisc: 'cake' }],
+};

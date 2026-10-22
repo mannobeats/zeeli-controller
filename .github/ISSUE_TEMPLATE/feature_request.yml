@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest a page, setting or improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: How the console could solve it. Mention the page or section it belongs in.
+    validations:
+      required: true
+  - type: textarea
+    id: firmware
+    attributes:
+      label: Router support
+      description: Does your router's firmware already support this? Name the setting in the stock panel, LuCI or UCI if you know it.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered

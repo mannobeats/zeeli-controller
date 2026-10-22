@@ -1,0 +1,67 @@
+@font-face { font-family: "Geist"; src: url("./fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("./fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+
+/* Light: grey canvas, white panels, one signal blue. State is carried by colored text. */
+:root {
+  color-scheme: light dark;
+
+  /* Dark mode is the Zeeli palette: a 6% frame, a 9% canvas, 12% floating layers,
+     one 92% ink, lines and fills as ink washes. */
+  --bg:          light-dark(#f4f5f6, #171717);
+  --frame:       light-dark(#ffffff, #0f0f0f);
+  /* Zeeli's panel ground: ink at 2% over the canvas, a hair above it. #1f1f1f is only for floating layers. */
+  --panel:       light-dark(#ffffff, color-mix(in srgb, #ebebeb 2%, #171717));
+  --surface:     light-dark(#ffffff, #1f1f1f);
+  --inset:       light-dark(#f7f8f9, #171717);
+  --fill:        light-dark(#f0f2f4, color-mix(in srgb, #ebebeb 5%, transparent));
+  --hover:       light-dark(#eef1f5, color-mix(in srgb, #ebebeb 8%, transparent));
+  --press:       light-dark(#e3e7ec, color-mix(in srgb, #ebebeb 12%, transparent));
+  --line:        light-dark(#e6e8eb, color-mix(in srgb, #ebebeb 7%, transparent));
+  --line-strong: light-dark(#d2d6dc, color-mix(in srgb, #ebebeb 12%, transparent));
+  --ink:         light-dark(#1f2226, #ebebeb);
+  --ink-2:       light-dark(#3b3f46, color-mix(in srgb, #ebebeb 82%, #171717));
+  --ink-3:       light-dark(#676c75, #919191);
+  --ink-4:       light-dark(#a3a8b0, #6b6b6b);
+  --strong:      light-dark(#1f2226, #ebebeb);
+  --on-strong:   light-dark(#ffffff, #171717);
+
+  --brand:       light-dark(#006fff, #459bf7);
+  --brand-hover: light-dark(#005ad1, #6cb0f9);
+  --brand-soft:  light-dark(#e8f1ff, color-mix(in srgb, #459bf7 14%, transparent));
+  --brand-line:  light-dark(#b9d5ff, color-mix(in srgb, #459bf7 38%, transparent));
+  --on-brand:    light-dark(#ffffff, #141414);
+  /* Selection (current nav item, chosen filter, selected row). Light follows
+     UniFi's blue; dark follows Zeeli, where blue is only a signal and the
+     current item is marked in ink. */
+  --select-bg:   light-dark(var(--brand-soft), color-mix(in srgb, #ebebeb 12%, transparent));
+  --select-ink:  light-dark(var(--brand), #ebebeb);
+  --text-select: light-dark(color-mix(in srgb, #006fff 22%, transparent), color-mix(in srgb, #ebebeb 22%, transparent));
+
+  --ok:        light-dark(#16924a, #6cb17b);
+  --ok-soft:   light-dark(#e6f6ec, color-mix(in srgb, #6cb17b 14%, transparent));
+  --warn:      light-dark(#b86e00, #ba9864);
+  --warn-soft: light-dark(#fff3dc, color-mix(in srgb, #ba9864 14%, transparent));
+  --bad:       light-dark(#d92d34, #d8847d);
+  --bad-soft:  light-dark(#fdebec, color-mix(in srgb, #d8847d 14%, transparent));
+
+  /* connection categories, same lightness so none shouts */
+  --c-wired: light-dark(#006fff, #4b95ff);
+  --c-24:    light-dark(#e08a00, #f2b347);
+  --c-5:     light-dark(#0aa39a, #3cc9bf);
+  --c-6:     light-dark(#7b5cf5, #a08cff);
+  --c-mlo:   light-dark(#d43f86, #f07ab0);
+
+  --font: "Geist", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, monospace;
+  --t-12: 12px; --t-13: 13px; --t-14: 14px; --t-16: 16px; --t-20: 20px; --t-24: 24px; --t-32: 32px;
+  --radius-sm: 6px; --radius: 8px; --radius-lg: 12px;
+  --h-sm: 28px; --h-md: 32px; --h-lg: 44px;
+  --shadow-sm: 0 1px 2px light-dark(rgb(16 24 40 / .05), rgb(0 0 0 / .4));
+  --shadow-lg: 0 0 0 1px var(--line), 0 16px 48px light-dark(rgb(16 24 40 / .14), rgb(0 0 0 / .55));
+  --ease: cubic-bezier(.16, 1, .3, 1); --t-fast: 140ms; --t-base: 220ms;
+  --top-h: 52px; --rail-w: 60px; --ctx-w: 232px; --title-lh: 32px;
+}
+[data-theme="dark"] { color-scheme: dark; }
+[data-theme="light"] { color-scheme: light; }
+/* biome-ignore lint/complexity/noImportantStyles: reduced motion must beat every component transition */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

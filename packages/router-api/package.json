@@ -1,0 +1,20 @@
+{
+  "name": "@zeeli/router-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Typed access to an OpenWrt router: GL.iNet and mock transports today, plain OpenWrt next.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

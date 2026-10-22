@@ -1,0 +1,30 @@
+{
+  "name": "zeeli-controller",
+  "private": true,
+  "description": "An open-source, UniFi-class controller for OpenWrt routers.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @zeeli/console dev",
+    "dev:demo": "pnpm --filter @zeeli/console dev:demo",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run --coverage",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "doctor": "pnpm --filter @zeeli/console run doctor",
+    "fallow": "fallow",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm run doctor && pnpm fallow && pnpm build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.2",
+    "fallow": "^3.34.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "@vitest/coverage-v8": "^5.0.5"
+  }
+}

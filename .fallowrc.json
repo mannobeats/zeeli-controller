@@ -1,0 +1,6 @@
+{
+  "$schema": "https://fallow.tools/schema.json",
+  "health": {
+    "coverage": "coverage/coverage-final.json"
+  }
+}

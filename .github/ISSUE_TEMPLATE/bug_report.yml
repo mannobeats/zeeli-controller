@@ -1,0 +1,55 @@
+name: Bug report
+description: Something in the console doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please remove anything private from logs and screenshots (WiFi names and passwords, public IP addresses, MAC addresses, VPN keys) before you post.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Network > WiFi
+        2. Change the channel to 36
+        3. Save
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Where does it happen
+      options:
+        - On a real router
+        - In the demo (pnpm dev:demo)
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: router
+    attributes:
+      label: Router model and firmware version
+      placeholder: GL-BE9300, firmware 4.8.1
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and operating system
+      placeholder: Firefox 140 on macOS 26
+  - type: input
+    id: commit
+    attributes:
+      label: Zeeli Controller commit
+      description: Output of `git rev-parse --short HEAD`, if you built it yourself.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console errors or screenshots
+      description: Errors from the browser's developer console, or screenshots.
