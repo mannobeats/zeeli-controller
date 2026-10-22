@@ -79,6 +79,16 @@ pnpm build
 
 The console builds to `apps/console/dist` as a static bundle with relative paths, so it can be served from a subpath on the router.
 
+### Install on your router
+
+```sh
+ROUTER_SSH=root@192.168.8.1 pnpm deploy:router
+```
+
+This builds the console and copies it to `/www/zeeli` on the router over SSH (key access required), then prints the address: `https://192.168.8.1/zeeli/`. GL.iNet's own panel, LuCI and SSH keep working beside it. Sign in with the router's admin password; the session is shared with the stock panel. To remove it: `ssh root@192.168.8.1 rm -rf /www/zeeli`.
+
+A firmware upgrade that doesn't keep settings removes the folder; run the command again afterwards.
+
 ## Architecture
 
 ```

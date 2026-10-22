@@ -18,7 +18,8 @@
     "format": "biome check --write .",
     "doctor": "pnpm --filter @zeeli/console run doctor",
     "fallow": "fallow",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm run doctor && pnpm fallow && pnpm build"
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm run doctor && pnpm fallow && pnpm build",
+    "deploy:router": "sh tools/deploy.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
