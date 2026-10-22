@@ -61,11 +61,14 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # every gate, and the build the package is made from
       - name: Check
+        run: pnpm check
+
+      # the tests run as a development build; only the shipped build carries the version
+      - name: Build
         env:
           ZEELI_VERSION: ${{ steps.version.outputs.version }}
-        run: pnpm check
+        run: pnpm build
 
       - name: Package and sign
         env:
