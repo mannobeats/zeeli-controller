@@ -24,7 +24,7 @@ return serve({
 		},
 
 		create: {
-			args: { ssid: 'name', password: 'secret', bands: [], network: 'kids', security: 'sae', hidden: false, isolate: false, options: {}, schedule: {} },
+			args: { ssid: 'name', password: 'secret', bands: [], network: 'kids', security: 'sae', hidden: false, isolate: false, options: {}, schedule: {}, mlo: false },
 			call: function(request) {
 				return create(request.args);
 			}

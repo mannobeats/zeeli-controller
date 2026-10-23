@@ -20,6 +20,13 @@ const SECURITY = ['sae', 'sae-mixed', 'psk2'];
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const ID = /^[a-z0-9]{4,12}$/;
 const SECTION = /^zeeli_([a-z0-9]{4,12})_(2g|5g|6g)$/;
+/**
+ * The driver tells MLDs apart by a number below 16 (MAX_AP_MLDS_PER_LINK in umac.ko), and the
+ * wifi scripts take that number from the digits of the `wifi-mld` section's name. GL's panel uses
+ * mld0 and mld1; ours are zeeli_mld2 up, so GL's `^mld` matching never sees them.
+ */
+const MLD_LIMIT = 16;
+const MLD_NAME = /^zeeli_mld([0-9]+)$/;
 
 /**
  * Options a person can set. `rrm` and `bssTransition` start on, like the firmware's main networks.
@@ -52,7 +59,12 @@ function sections(c, config, type) {
 
 function uniq(a) {
 	const seen = {};
-	return filter(a, (x) => { if (seen[x]) return false; seen[x] = true; return true; });
+	return filter(a, (x) => {
+		const k = type(x) == 'string' ? x : sprintf('%J', x);
+		if (seen[k]) return false;
+		seen[k] = true;
+		return true;
+	});
 }
 
 function bandOrder(a, b) {
@@ -105,12 +117,27 @@ function teardownFile() {
 	return `${paths.state}/wifi-teardown`;
 }
 
-/** Interfaces of deleted sections, which `apply` takes off the air. */
-function queueTeardown(ifnames) {
+/** Interfaces of deleted sections, which `apply` takes off the air. A multi-link network queues `{ mld, links }`. */
+function queueTeardown(entries) {
 	let queued = [];
 	try { queued = json(readfile(teardownFile()) ?? '[]') ?? []; } catch (e) { queued = []; }
 	mkdir(paths.state);
-	writefile(teardownFile(), sprintf('%J', uniq([...queued, ...filter(ifnames, (n) => n)])));
+	writefile(teardownFile(), sprintf('%J', uniq([...queued, ...filter(entries, (n) => n)])));
+}
+
+/**
+ * A multi-link network goes the way GL's own `set_mlo_config` removes its guest MLD: the link
+ * interfaces out of the driver and hostapd, then the MLD's netdev off its bridge and deleted.
+ */
+function teardownMld(c, q, inUse) {
+	if (type(q.mld) != 'string' || !match(q.mld, MLD_NAME) || c.get('wireless', q.mld) != null) return;
+	const links = filter(q.links ?? [], (n) => type(n) == 'string' && match(n, /^wlan[0-9]+$/) && !inUse[n]
+		&& (paths.confdir || stat(`/sys/class/net/${n}`) != null));
+	for (let n in links) runOrLog(['iw', n, 'del']);
+	for (let n in links) runOrLog(['hostapd_cli', '-p', '/var/run/hostapd', '-i', 'global', 'raw', 'REMOVE', n]);
+	if (!paths.confdir && stat(`/sys/class/net/${q.mld}`) == null) return;
+	runOrLog(['ip', 'link', 'set', 'dev', q.mld, 'nomaster']);
+	runOrLog(['iw', q.mld, 'del']);
 }
 
 /**
@@ -124,6 +151,7 @@ function teardown(c) {
 	const inUse = {};
 	for (let s in sections(c, 'wireless', 'wifi-iface')) if (s.ifname) inUse[s.ifname] = true;
 	for (let n in queued) {
+		if (type(n) == 'object') { teardownMld(c, n, inUse); continue; }
 		if (type(n) != 'string' || !match(n, /^wlan[0-9]+$/) || inUse[n]) continue;
 		if (!paths.confdir && stat(`/sys/class/net/${n}`) == null) continue;
 		runOrLog(['hostapd_cli', '-p', '/var/run/hostapd', '-i', 'global', 'raw', 'REMOVE', n]);
@@ -207,6 +235,41 @@ function resolveNetwork(c, name) {
 	return null;
 }
 
+/** The bands the firmware lets an MLD join: GL's /etc/config/mlo, written once by the firmware. */
+function mloBands(c) {
+	if (c.get_all('mlo', 'global') == null) return [];
+	return filter(c.get('mlo', 'global', 'support_bands') ?? [], (b) => b in BANDS);
+}
+
+/** The MLD numbers in use, GL's two included. */
+function mldNumbers(c) {
+	const used = {};
+	for (let cfg in ['wireless', 'mlo'])
+		for (let s in sections(c, cfg, 'wifi-mld')) {
+			const m = match(s['.name'], /([0-9]+)$/);
+			if (m) used[m[1]] = true;
+		}
+	return used;
+}
+
+/** The lowest MLD number below the driver's 16 that nothing uses, or null. GL has 0 and 1; ours start at 2. */
+function freeMld(c) {
+	const used = mldNumbers(c);
+	for (let n = 2; n < MLD_LIMIT; n++) if (!used[`${n}`]) return `zeeli_mld${n}`;
+	return null;
+}
+
+/** Whether another multi-link network can be made, and if not, why in words for the person. */
+function mloState(c) {
+	const bands = mloBands(c);
+	const free = freeMld(c);
+	let reason = null;
+	if (!length(bands)) reason = 'This router’s firmware has no multi-link (Wi-Fi 7 MLO) support.';
+	else if (length(bands) < 2) reason = 'Multi-link needs a router with at least two bands that support it.';
+	else if (free == null) reason = `This router holds ${MLD_LIMIT} multi-link networks, and they’re all in use.`;
+	return { supported: reason == null, bands, reason };
+}
+
 function role(s) {
 	if (s.multi_ap == '1') return 'mesh-backhaul';
 	if (!isAp(s)) return 'station';
@@ -278,6 +341,7 @@ function zeeliEntries(c, nets, devs) {
 			hidden: first.hidden == '1',
 			isolate: first.isolate == '1',
 			disabled: length(filter(list, (s) => s.disabled != '1')) == 0,
+			mlo: first.mld != null,
 			scheduledOff: length(filter(list, (s) => s.sched_off == '1')) > 0,
 			hasKey: length(first.key ?? '') > 0,
 			options: optionsOf(first),
@@ -303,6 +367,7 @@ function list() {
 		networks: [...networks, ...zeeliEntries(c, nets, devs)],
 		radios: map(sort(keys(devs)), (d) => ({ device: d, band: devs[d].band, disabled: devs[d].disabled, used: used(c, d), limit: LIMIT })),
 		lanNetworks: nets,
+		mlo: mloState(c),
 		internal,
 		pending: stat(pendingFile()) != null
 	};
@@ -381,6 +446,16 @@ function checkBand(c, devs, spec, own, b) {
 	return null;
 }
 
+/** What a multi-link network adds: WPA3 on every link, two or more bands the firmware allows, and a free MLD. */
+function checkMlo(c, spec, own) {
+	if (spec.security != 'sae') return 'Multi-link networks need WPA3.';
+	if (length(spec.bands) < 2) return 'Multi-link needs at least two bands.';
+	const state = mloState(c);
+	if (!length(own) && !state.supported) return state.reason;
+	for (let b in spec.bands) if (!(b in state.bands)) return `The router’s firmware doesn’t offer multi-link on ${BAND_NAME[b]}.`;
+	return null;
+}
+
 /** Checks a complete description of a Zeeli network. `own` are the sections it already has. */
 function checkSpec(c, spec, own) {
 	let e = checkSsid(spec.ssid) ?? checkPassword(spec.password);
@@ -389,6 +464,8 @@ function checkSpec(c, spec, own) {
 	if (type(spec.bands) != 'array' || !length(spec.bands)) return fail('Pick at least one band.');
 	for (let b in spec.bands) if (!(b in BANDS)) return fail(`Not a band: ${b}`);
 	if (length(spec.bands) != length(uniq(spec.bands))) return fail('Each band can only be listed once.');
+	e = spec.mlo ? checkMlo(c, spec, own) : null;
+	if (e) return fail(e);
 	if ('6g' in spec.bands && spec.security != 'sae') return fail('6 GHz needs WPA3. Choose WPA3, or leave 6 GHz out.');
 	if (type(spec.hidden) != 'bool' || type(spec.isolate) != 'bool') return fail('Hidden and isolate must be on or off.');
 	e = checkOptions(spec.options);
@@ -483,7 +560,8 @@ function writeOptions(c, name, o, id, mac) {
  *   guest 'zeeli': see the README. GL's own WiFi timer switches the last AP of a band that has
  *     guest 0 or none, so without another value it would switch our network, not the main one
  *   zeeli '1': ours
- * Left out on purpose: multi_ap, wps_*, mld, init, factory_macaddr, random_bssid, disablecoext
+ *   mld: a multi-link network's MLD (`zeeli_mld<n>`); GL's MLO links carry the same option
+ * Left out on purpose: multi_ap, wps_*, init, factory_macaddr, random_bssid, disablecoext
  * (mesh, WPS, MLO and GL first-run state; disablecoext is radio-wide and set by the main AP).
  * `keep` carries what an existing section already has: its ifname, address and on/off state.
  */
@@ -491,7 +569,8 @@ function writeSection(c, name, spec, dev, keep) {
 	c.set('wireless', name, 'wifi-iface');
 	const set = (k, v) => c.set('wireless', name, k, `${v}`);
 	for (let k in OPTION_KEYS) if (c.get('wireless', name, k) != null) c.delete('wireless', name, k);
-	const sec = securityOptions(spec.security, dev.band);
+	// every link of an MLD must carry the same security, so a multi-link network never gets sae_pwe
+	const sec = securityOptions(spec.security, spec.mld ? '' : dev.band);
 	set('device', dev.device);
 	set('network', spec.iface);
 	set('mode', 'ap');
@@ -506,8 +585,30 @@ function writeSection(c, name, spec, dev, keep) {
 	set('notify_mgmt_frames', '1');
 	set('guest', 'zeeli');
 	set('zeeli', '1');
+	if (spec.mld) set('mld', spec.mld);
 	set('disabled', keep.disabled ?? '0');
 	writeOptions(c, name, spec.options, spec.id, keep.macaddr);
+}
+
+/** An MLD address nothing else on the router uses. */
+function mldMacFor(c) {
+	const macs = {};
+	for (let cfg in ['wireless', 'mlo'])
+		for (let kind in ['wifi-iface', 'wifi-mld'])
+			for (let s in sections(c, cfg, kind)) for (let k in ['macaddr', 'mld_macaddr']) if (s[k]) macs[lc(s[k])] = true;
+	for (let i = 0; i < 5; i++) {
+		const mac = randomMac();
+		if (!macs[lc(mac)]) return mac;
+	}
+	return null;
+}
+
+/** The MLD behind a multi-link network: what the driver scripts bring up before its links. */
+function writeMld(c, spec, mac) {
+	c.set('wireless', spec.mld, 'wifi-mld');
+	c.set('wireless', spec.mld, 'mld_ssid', spec.ssid);
+	c.set('wireless', spec.mld, 'mld_macaddr', mac);
+	c.set('wireless', spec.mld, 'zeeli', '1');
 }
 
 function writeSchedule(c, id, s) {
@@ -550,13 +651,19 @@ function create(args) {
 	const sched = type(args.schedule) == 'object' && length(keys(args.schedule)) ? args.schedule : null;
 	const e = sched ? checkSchedule(sched) : null;
 	if (e) return fail(e);
+	if (args.mlo != null && type(args.mlo) != 'bool') return fail('Multi-link must be on or off.');
+	const mlo = args.mlo == true;
+	// the scripts treat any name with "mld" in it as an MLD, so an id never spells it
+	let id = randomToken(6);
+	while (index(id, 'mld') >= 0) id = randomToken(6);
 	const spec = {
-		id: randomToken(6),
+		id,
+		mlo,
 		ssid: args.ssid,
 		password: args.password,
 		bands: args.bands,
 		iface: net.iface,
-		security: args.security ?? 'sae-mixed',
+		security: args.security ?? (mlo ? 'sae' : 'sae-mixed'),
 		hidden: args.hidden ?? false,
 		isolate: args.isolate ?? false,
 		options: withDefaults(args.options)
@@ -565,6 +672,12 @@ function create(args) {
 	if (bad) return bad;
 	const devs = radios(c);
 	const made = [];
+	if (mlo) {
+		const mac = mldMacFor(c);
+		spec.mld = freeMld(c);
+		if (!mac) return fail('There’s no free multi-link address left.');
+		writeMld(c, spec, mac);
+	}
 	for (let b in spec.bands) {
 		const name = addBand(c, devs, spec, b, '0');
 		if (type(name) == 'object') return name;
@@ -594,6 +707,7 @@ function rewrite(c, spec, own) {
 		}
 		writeSection(c, old['.name'], spec, findDevice(devs, b), { ifname: old.ifname, macaddr: old.macaddr, disabled: old.disabled });
 	}
+	if (spec.mld) c.set('wireless', spec.mld, 'mld_ssid', spec.ssid);
 	return finish(c, { id: spec.id });
 }
 
@@ -603,6 +717,8 @@ function currentSpec(c, id, own) {
 	const first = own[0];
 	return {
 		id,
+		mlo: first.mld != null,
+		mld: first.mld,
 		ssid: first.ssid,
 		password: first.key,
 		bands: sort(map(own, (s) => bandOf(devs, s)), bandOrder),
@@ -623,8 +739,11 @@ function update(args) {
 	if (args.network != null) {
 		const net = resolveNetwork(c, args.network);
 		if (net == null) return fail('That network doesn’t exist on the router.');
+		if (spec.mlo && spec.iface != net.iface) return fail('A multi-link network can’t move to another network. Delete it and make it again there.');
 		spec.iface = net.iface;
 	}
+	if (spec.mlo && args.bands != null && sprintf('%J', sort([...(type(args.bands) == 'array' ? args.bands : [])], bandOrder)) != sprintf('%J', spec.bands))
+		return fail('A multi-link network can’t change its bands. Delete it and make it again with the bands you want.');
 	for (let k in ['ssid', 'password', 'bands', 'security', 'hidden', 'isolate']) if (args[k] != null) spec[k] = args[k];
 	spec.options = { ...withDefaults(spec.options), ...(args.options ?? {}) };
 	const bad = checkSpec(c, spec, own);
@@ -636,8 +755,10 @@ function remove(id) {
 	const c = cursor();
 	const own = findGroup(c, id);
 	if (type(own) == 'object') return own;
-	queueTeardown(map(own, (s) => s.ifname));
+	const mld = own[0].mld;
+	queueTeardown(mld ? [{ mld, links: map(own, (s) => s.ifname) }] : map(own, (s) => s.ifname));
 	for (let s in own) c.delete('wireless', s['.name']);
+	if (mld && match(mld, MLD_NAME) && c.get('wireless', mld, 'zeeli') == '1') c.delete('wireless', mld);
 	if (c.get('zeeli', `wifi_${id}`) != null) c.delete('zeeli', `wifi_${id}`);
 	return finish(c, {});
 }

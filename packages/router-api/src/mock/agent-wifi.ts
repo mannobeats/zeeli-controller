@@ -44,6 +44,7 @@ const own = (id: string, ssid: string, bands: OwnBand[], network: string, extra:
   isolate: false,
   disabled: false,
   hasKey: true,
+  mlo: false,
   scheduledOff: false,
   options: OPTIONS,
   schedule: null,
@@ -149,6 +150,7 @@ export const agentWifi: Record<string, Handler> = {
       networks: [...FIRMWARE, ...d.own],
       radios: OWN_BANDS.map((band, i) => ({ device: `wifi${i}`, band, disabled: false, used: bandsUsed(d, band), limit: LIMIT })),
       lanNetworks: joinable(s),
+      mlo: { supported: true, bands: [...OWN_BANDS], reason: null },
       internal: [],
       pending: d.pending,
     };
@@ -159,13 +161,14 @@ export const agentWifi: Record<string, Handler> = {
   },
   'zeeli:wifi.create': (s, a) => {
     const d = demo(s);
-    const input = a as unknown as OwnWifiInput;
+    const input = { ...a, security: a.security ?? (a.mlo ? 'sae' : 'sae-mixed') } as unknown as OwnWifiInput;
     const bad = problem(s, d, input);
     if (bad) return { error: bad };
     const id = `net${String(++d.seq).padStart(2, '0')}${Math.random().toString(36).slice(2, 4)}`;
     d.own.push(
       own(id, input.ssid, [...input.bands].sort(), input.network, {
-        security: input.security ?? 'sae-mixed',
+        mlo: Boolean(input.mlo),
+        security: input.security,
         hidden: Boolean(input.hidden),
         isolate: Boolean(input.isolate),
         options: withOptions(input.options),
@@ -181,6 +184,10 @@ export const agentWifi: Record<string, Handler> = {
     const n = find(d, a.id);
     if (!n) return missing;
     const next = { ...n, ...(a as Partial<OwnWifi>), options: withOptions(n.options, a.options as Partial<WifiOptions> | undefined) };
+    if (n.mlo && next.network !== n.network)
+      return { error: 'A multi-link network can’t move to another network. Delete it and make it again there.' };
+    if (n.mlo && [...next.bands].sort().join() !== [...n.bands].sort().join())
+      return { error: 'A multi-link network can’t change its bands. Delete it and make it again with the bands you want.' };
     const password = typeof a.password === 'string' ? a.password : (d.passwords.get(n.id) ?? '');
     const bad = problem(s, d, { ...next, password, schedule: n.schedule }, n.id);
     if (bad) return { error: bad };

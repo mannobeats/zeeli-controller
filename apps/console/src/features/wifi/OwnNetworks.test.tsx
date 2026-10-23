@@ -221,3 +221,61 @@ test('counts the online devices on each network by band and subnet', async () =>
   expect(within(await rowOf('Kids')).getByText('0', { selector: '.num' })).toBeTruthy();
   await api.wifiNetworks.setEnabled(everywhere.id, false);
 });
+
+const mloInput: OwnWifiInput = { ...base, ssid: 'Wi-Fi 7', bands: ['5g', '6g'], security: 'sae', mlo: true };
+
+test('a multi-link network shows as MLO over its bands', async () => {
+  await api.wifiNetworks.create(mloInput);
+  await renderPage(<WifiPage />);
+  const row = within(await rowOf('Wi-Fi 7'));
+  expect(row.getByText('MLO · 5 GHz + 6 GHz')).toBeTruthy();
+  expect(row.getByText('WPA3')).toBeTruthy();
+});
+
+test('choosing multi-link picks 5 and 6 GHz, forces WPA3 and makes one network', async () => {
+  const user = await renderPage(<WifiPage />);
+  await user.click(await screen.findByRole('button', { name: 'Add network' }));
+  const s = await sheet();
+  await user.type(s.getByLabelText(/^Network name/), 'Wi-Fi 7');
+  await user.type(s.getByLabelText(/^Password/), 'a long password');
+  await user.click(s.getByRole('checkbox', { name: /^Multi-link/ }));
+  expect((s.getByRole('checkbox', { name: /^5 GHz/ }) as HTMLInputElement).checked).toBe(true);
+  expect((s.getByRole('checkbox', { name: /^6 GHz/ }) as HTMLInputElement).checked).toBe(true);
+  expect((s.getByLabelText(/^Security/) as HTMLSelectElement).value).toBe('sae');
+  expect(s.getByText('Multi-link needs WPA3.')).toBeTruthy();
+  await user.click(s.getByRole('checkbox', { name: /^6 GHz/ }));
+  await user.click(s.getByRole('button', { name: 'Add network' }));
+  await waitFor(() => expect(s.getByRole('alert').textContent).toBe('Multi-link needs at least two bands.'));
+  await user.click(s.getByRole('checkbox', { name: /^2\.4 GHz/ }));
+  await user.click(s.getByRole('button', { name: 'Add network' }));
+  await expectToast('Added Wi-Fi 7. Devices can join in a few seconds.');
+  expect(await named('Wi-Fi 7')).toMatchObject({ mlo: true, bands: ['2g', '5g'], security: 'sae' });
+  expect(within(await rowOf('Wi-Fi 7')).getByText('MLO · 2.4 GHz + 5 GHz')).toBeTruthy();
+});
+
+test('multi-link is off, with the reason, when the router can’t make another', async () => {
+  const real = await api.wifiNetworks.overview();
+  const reason = 'This router’s firmware has no multi-link (Wi-Fi 7 MLO) support.';
+  vi.spyOn(api.wifiNetworks, 'overview').mockResolvedValue({ ...real, mlo: { supported: false, bands: [], reason } });
+  const user = await renderPage(<WifiPage />);
+  await user.click(await screen.findByRole('button', { name: 'Add network' }));
+  const s = await sheet();
+  expect((s.getByRole('checkbox', { name: /^Multi-link/ }) as HTMLInputElement).disabled).toBe(true);
+  expect(s.getByText(reason)).toBeTruthy();
+});
+
+test('editing a multi-link network keeps its bands and network, and saves a rename', { timeout: APPLYING }, async () => {
+  await api.wifiNetworks.create(mloInput);
+  const user = await renderPage(<WifiPage />);
+  await user.click(await rowOf('Wi-Fi 7'));
+  const s = await sheet();
+  const multi = s.getByRole('checkbox', { name: /^Multi-link/ }) as HTMLInputElement;
+  expect([multi.checked, multi.disabled]).toEqual([true, true]);
+  expect((s.getByRole('checkbox', { name: /^5 GHz/ }) as HTMLInputElement).disabled).toBe(true);
+  expect(s.getByText(/delete this one and make it again/)).toBeTruthy();
+  await user.clear(s.getByLabelText(/^Network name/));
+  await user.type(s.getByLabelText(/^Network name/), 'Wi-Fi 7 Home');
+  await user.click(s.getByRole('button', { name: 'Save' }));
+  await expectToast('Saved Wi-Fi 7 Home. Devices on it reconnect in a few seconds.');
+  expect(await named('Wi-Fi 7 Home')).toMatchObject({ mlo: true, bands: ['5g', '6g'], network: 'main' });
+});

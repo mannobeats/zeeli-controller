@@ -28,6 +28,7 @@ function firmware() {
 function fresh() {
 	const c = cursor();
 	for (let k in sections()) if (match(k, /^zeeli_/)) c.delete('wireless', k);
+	c.foreach('wireless', 'wifi-mld', (s) => { if (match(s['.name'], /^zeeli_/)) c.delete('wireless', s['.name']); });
 	c.commit('wireless');
 	c.foreach('zeeli', 'wifi_schedule', (s) => { c.delete('zeeli', s['.name']); });
 	c.commit('zeeli');
@@ -375,9 +376,174 @@ t('a network made with a schedule stores it in /etc/config/zeeli', () => {
 	eq(cursor().get('zeeli', `wifi_${r.id}`), null);
 });
 
+// ---- multi-link (MLO) networks ----------------------------------------------------------
+
+const mlo = { ssid: 'Wi-Fi 7', password: 'correct horse', bands: ['5g', '6g'], network: 'guest', mlo: true };
+
+/** Like `made`, but with no default security: a multi-link network starts at WPA3 on its own. */
+function mk(args) {
+	const r = call('create', { ...mlo, ...(args ?? {}) });
+	ok(!r.error, `create failed: ${r.error}`);
+	return r;
+}
+
+function mlds() {
+	const out = {};
+	cursor().foreach('wireless', 'wifi-mld', (s) => { out[s['.name']] = s; });
+	return out;
+}
+
+function mloConfig() {
+	return sprintf('%J', cursor().get_all('mlo', 'mld0')) + sprintf('%J', cursor().get_all('mlo', 'mld1')) + sprintf('%J', cursor().get_all('mlo', 'global'));
+}
+
+t('list says whether another multi-link network can be made, and which bands it may use', () => {
+	eq(call('list').mlo, { supported: true, bands: ['2g', '5g', '6g'], reason: null });
+	const c = cursor();
+	c.set('mlo', 'global', 'support_bands', ['5g', '6g']);
+	c.commit('mlo');
+	eq(call('list').mlo.bands, ['5g', '6g']);
+	c.delete('mlo', 'global');
+	c.commit('mlo');
+	eq(call('list').mlo, { supported: false, bands: [], reason: 'This router’s firmware has no multi-link (Wi-Fi 7 MLO) support.' });
+	c.set('mlo', 'global', 'mlo');
+	c.set('mlo', 'global', 'support_bands', ['5g']);
+	c.commit('mlo');
+	eq(call('list').mlo.reason, 'Multi-link needs a router with at least two bands that support it.');
+	c.set('mlo', 'global', 'support_bands', ['2g', '5g', '6g']);
+	c.commit('mlo');
+});
+
+t('a multi-link network is one MLD with a link on each band, in the shape GL’s own MLO uses', () => {
+	const fw = firmware(), before = mloConfig(), gl = sprintf('%J', [mlds().mld0, mlds().mld1]);
+	const r = mk(mlo);
+	eq(sort(r.sections), [`zeeli_${r.id}_5g`, `zeeli_${r.id}_6g`]);
+	const m = mlds().zeeli_mld2;
+	eq([m['.type'], m.mld_ssid, m.zeeli], ['wifi-mld', 'Wi-Fi 7', '1']);
+	ok(match(m.mld_macaddr, /^[0-9A-F][26AE](:[0-9A-F]{2}){5}$/), `mld_macaddr ${m.mld_macaddr}`);
+	for (let b in ['5g', '6g']) {
+		const s = sections()[`zeeli_${r.id}_${b}`];
+		eq([s.mld, s.encryption, s.sae, s.no_beacon_rsnxe, s.sae_pwe, s.zeeli, s.network, s.disabled], ['zeeli_mld2', 'ccmp', '1', '0', null, '1', 'guest', '0'], b);
+	}
+	eq(map(['5g', '6g'], (b) => sections()[`zeeli_${r.id}_${b}`].ifname), ['wlan130', 'wlan230']);
+	const e = entry(r.id);
+	eq([e.mlo, e.bands, e.security, e.network], [true, ['5g', '6g'], 'sae', 'guest']);
+	eq(entry(r.id).hasKey, true);
+	ok(index(sprintf('%J', call('list')), 'correct horse') < 0, 'a key leaked into list');
+	eq(firmware(), fw, 'the firmware’s wireless sections are untouched');
+	eq(sprintf('%J', [mlds().mld0, mlds().mld1]), gl, 'GL’s own MLDs are untouched');
+	eq(mloConfig(), before, '/etc/config/mlo belongs to GL’s two slots and is not written');
+	eq(call('list').pending, true);
+});
+
+t('security defaults to WPA3, and each multi-link network takes the next free MLD', () => {
+	const a = mk({ ...mlo, ssid: 'First', bands: ['2g', '5g', '6g'] });
+	const b = mk({ ...mlo, ssid: 'Second', network: 'main' });
+	eq(sort(keys(mlds())), ['mld0', 'mld1', 'zeeli_mld2', 'zeeli_mld3']);
+	eq(sections()[`zeeli_${b.id}_5g`].mld, 'zeeli_mld3');
+	ok(mlds().zeeli_mld2.mld_macaddr != mlds().zeeli_mld3.mld_macaddr, 'each MLD has its own address');
+	eq(entry(a.id).bands, ['2g', '5g', '6g']);
+	call('delete', { id: a.id });
+	const c = mk({ ...mlo, ssid: 'Third', network: 'main' });
+	eq(sections()[`zeeli_${c.id}_5g`].mld, 'zeeli_mld2', 'a freed MLD is reused');
+});
+
+t('refused: a multi-link network on one band, without WPA3, off the firmware’s bands, or with no MLD left', () => {
+	const fw = firmware(), before = sprintf('%J', mlds());
+	const no = (patch, message) => eq(call('create', { ...mlo, ...patch }).error, message);
+	no({ bands: ['5g'] }, 'Multi-link needs at least two bands.');
+	no({ security: 'sae-mixed' }, 'Multi-link networks need WPA3.');
+	no({ security: 'psk2' }, 'Multi-link networks need WPA3.');
+	no({ mlo: 'yes' }, 'Multi-link must be on or off.');
+	const c = cursor();
+	c.set('mlo', 'global', 'support_bands', ['5g', '6g']);
+	c.commit('mlo');
+	no({ bands: ['2g', '5g'] }, 'The router’s firmware doesn’t offer multi-link on 2.4 GHz.');
+	c.set('mlo', 'global', 'support_bands', ['2g', '5g', '6g']);
+	c.commit('mlo');
+	for (let n = 2; n < 16; n++) c.set('wireless', `zeeli_mld${n}`, 'wifi-mld');
+	c.commit('wireless');
+	no({}, 'This router holds 16 multi-link networks, and they’re all in use.');
+	for (let n = 2; n < 16; n++) c.delete('wireless', `zeeli_mld${n}`);
+	c.commit('wireless');
+	eq(firmware(), fw);
+	eq(sprintf('%J', mlds()), before);
+	eq(call('list').pending, false, 'nothing was written');
+});
+
+t('a multi-link network still follows the per-band rules for names and slots', () => {
+	eq(call('create', { ...mlo, ssid: 'Zeeli-5G' }).error, 'Another network on 5 GHz is already called “Zeeli-5G”.');
+	eq(call('create', { ...mlo, network: 'iot' }).error, 'The iot network is switched off. Turn it on first.');
+	eq(call('create', { ...mlo, password: 'short' }).error, 'The password must be 8 to 63 characters.');
+	eq(length(mlds()), 2, 'a refused network leaves no MLD behind');
+});
+
+t('update renames, rekeys and hides a multi-link network in place, but never moves or reshapes it', () => {
+	const r = mk(mlo);
+	const mac = mlds().zeeli_mld2.mld_macaddr;
+	ok(!call('update', { id: r.id, ssid: 'Wi-Fi 7 Home', password: 'another one', hidden: true, options: { maxClients: 20 } }).error, 'update');
+	const m = mlds().zeeli_mld2;
+	eq([m.mld_ssid, m.mld_macaddr], ['Wi-Fi 7 Home', mac]);
+	for (let b in ['5g', '6g']) {
+		const s = sections()[`zeeli_${r.id}_${b}`];
+		eq([s.ssid, s.key, s.hidden, s.maxsta, s.mld, s.sae_pwe], ['Wi-Fi 7 Home', 'another one', '1', '20', 'zeeli_mld2', null], b);
+	}
+	eq(call('update', { id: r.id, bands: ['5g'] }).error, 'A multi-link network can’t change its bands. Delete it and make it again with the bands you want.');
+	eq(call('update', { id: r.id, bands: ['2g', '5g', '6g'] }).error, 'A multi-link network can’t change its bands. Delete it and make it again with the bands you want.');
+	eq(call('update', { id: r.id, bands: ['6g', '5g'] }).error, null, 'the same bands in another order are no change');
+	eq(call('update', { id: r.id, network: 'main' }).error, 'A multi-link network can’t move to another network. Delete it and make it again there.');
+	eq(call('update', { id: r.id, network: 'guest' }).error, null);
+	eq(call('update', { id: r.id, security: 'sae-mixed' }).error, 'Multi-link networks need WPA3.');
+	eq(entry(r.id).network, 'guest');
+});
+
+t('set_enabled switches every link of a multi-link network and leaves the MLD', () => {
+	const r = mk(mlo);
+	call('set_enabled', { id: r.id, enabled: false });
+	eq(map(['5g', '6g'], (b) => sections()[`zeeli_${r.id}_${b}`].disabled), ['1', '1']);
+	eq(entry(r.id).disabled, true);
+	eq(sort(keys(mlds())), ['mld0', 'mld1', 'zeeli_mld2']);
+});
+
+t('deleting a multi-link network removes its MLD and links, and apply takes them off the air the way GL does', () => {
+	const fw = firmware(), before = mloConfig(), gl = sprintf('%J', [mlds().mld0, mlds().mld1]);
+	const r = mk(mlo);
+	call('apply');
+	unlink(`${paths.state}/wifi-apply.log`);
+	ok(!call('delete', { id: r.id }).error, 'delete');
+	eq(sort(keys(mlds())), ['mld0', 'mld1']);
+	eq(length(filter(keys(sections()), (k) => match(k, /^zeeli_/))), 0);
+	eq(firmware(), fw);
+	eq(sprintf('%J', [mlds().mld0, mlds().mld1]), gl);
+	eq(mloConfig(), before);
+	call('apply');
+	eq(readfile(`${paths.state}/wifi-apply.log`), join('\n', [
+		'timeout 25 /sbin/wifi reload',
+		'iw wlan130 del',
+		'iw wlan230 del',
+		'hostapd_cli -p /var/run/hostapd -i global raw REMOVE wlan130',
+		'hostapd_cli -p /var/run/hostapd -i global raw REMOVE wlan230',
+		'ip link set dev zeeli_mld2 nomaster',
+		'iw zeeli_mld2 del',
+		''
+	]));
+	unlink(`${paths.state}/wifi-apply.log`);
+	call('apply');
+	eq(readfile(`${paths.state}/wifi-apply.log`), 'timeout 25 /sbin/wifi reload\n', 'nothing is torn down twice');
+});
+
+t('a deleted multi-link network is not torn down while a new one has taken its interface names', () => {
+	const r = mk(mlo);
+	call('delete', { id: r.id });
+	mk({ ...mlo, ssid: 'Again' });
+	unlink(`${paths.state}/wifi-apply.log`);
+	call('apply');
+	eq(readfile(`${paths.state}/wifi-apply.log`), 'timeout 25 /sbin/wifi reload\n');
+});
+
 t('the rpc object declares every argument it reads', () => {
 	eq(sort(keys(wifi)), ['apply', 'clear_schedule', 'create', 'delete', 'list', 'reveal', 'set_enabled', 'set_schedule', 'tick', 'update']);
-	eq(sort(keys(wifi.create.args)), ['bands', 'hidden', 'isolate', 'network', 'options', 'password', 'schedule', 'security', 'ssid']);
+	eq(sort(keys(wifi.create.args)), ['bands', 'hidden', 'isolate', 'mlo', 'network', 'options', 'password', 'schedule', 'security', 'ssid']);
 });
 
 done();
