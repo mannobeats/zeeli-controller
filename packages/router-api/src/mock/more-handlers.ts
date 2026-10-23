@@ -1,4 +1,5 @@
 // Demo answers for the rest of the router. Invented values only.
+import { userRules } from './adguard-admin.ts';
 import { appConfigs, opkgCall } from './apps-handlers.ts';
 import type { MockState } from './seed.ts';
 import { SETTINGS } from './settings-data.ts';
@@ -534,8 +535,9 @@ export const moreHandlers: Record<string, Handler> = {
       },
     ],
   }),
-  'adguard:filtering/status': (_s) => ({
+  'adguard:filtering/status': (s) => ({
     enabled: true,
+    user_rules: userRules(s),
     filters: [
       {
         id: 1,

@@ -1,6 +1,7 @@
-import { IconRefresh } from '@tabler/icons-react';
+import { IconExternalLink, IconRefresh } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import type { AdguardProtections, AdguardState } from '@zeeli/router-api';
+import { useState } from 'react';
 import { useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { useSettings } from '../../api/useSettings.ts';
@@ -8,35 +9,86 @@ import { errorMessage } from '../../lib/errors.ts';
 import { Button } from '../../ui/Button.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
-import { Switch, SwitchRow } from '../../ui/fields.tsx';
+import { Segmented, Switch, SwitchRow } from '../../ui/fields.tsx';
 import { Empty, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
+import { CustomRules } from './CustomRules.tsx';
+import { DeviceProfiles } from './DeviceProfiles.tsx';
 import { DnsStats } from './DnsStats.tsx';
 import { QueryLog } from './QueryLog.tsx';
+import { Rewrites } from './Rewrites.tsx';
+import { BlockedServices } from './Services.tsx';
 
-/** AdGuard Home as an app: on/off, statistics and filter lists, all in the console. */
+const TABS = [
+  ['overview', 'Overview'],
+  ['filtering', 'Filtering'],
+  ['devices', 'Devices'],
+  ['rewrites', 'DNS rewrites'],
+] as const;
+type Tab = (typeof TABS)[number][0];
+
+/** AdGuard's own screen, for settings the console doesn't cover. It listens on port 3000 of the router. */
+const adguardUrl = () => `http://${location.hostname}:3000/`;
+
+/** AdGuard Home as an app: on/off, statistics, rules, services and per-device profiles, all in the console. */
 export default function AdguardPage() {
   const { query, save } = useSettings('adguard', api.dns.adguard);
+  const [tab, setTab] = useState<Tab>('overview');
   return (
     <Loaded query={query} title="AdGuard Home">
       {(state) => (
         <>
-          <PageHeader title="AdGuard Home" sub="Network-wide blocking of ads, trackers and malware." />
-          <AdguardForm state={state} save={save} />
+          <PageHeader
+            title="AdGuard Home"
+            sub="Network-wide blocking of ads, trackers and malware."
+            actions={
+              state.enabled ? (
+                <a className="btn default" href={adguardUrl()} target="_blank" rel="noreferrer">
+                  <IconExternalLink size={16} />
+                  Open AdGuard Home
+                </a>
+              ) : undefined
+            }
+          />
           {state.enabled ? (
-            <>
-              <ProtectionsForm />
-              <div className="section-gap">
-                <DnsStats />
-              </div>
-              <QueryLog />
-              <FilterLists />
-            </>
+            <div className="toolbar">
+              <Segmented label="AdGuard Home sections" value={tab} onChange={setTab} options={TABS} />
+            </div>
           ) : null}
+          {state.enabled && tab !== 'overview' ? <TabBody tab={tab} /> : <Overview state={state} save={save} />}
         </>
       )}
     </Loaded>
+  );
+}
+
+function Overview({ state, save }: { state: AdguardState; save: (v: Partial<AdguardState>, what?: string) => Promise<unknown> }) {
+  return (
+    <>
+      <AdguardForm state={state} save={save} />
+      {state.enabled ? (
+        <>
+          <ProtectionsForm />
+          <div className="section-gap">
+            <DnsStats />
+          </div>
+          <QueryLog />
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function TabBody({ tab }: { tab: Exclude<Tab, 'overview'> }) {
+  if (tab === 'devices') return <DeviceProfiles />;
+  if (tab === 'rewrites') return <Rewrites />;
+  return (
+    <div className="stack">
+      <FilterLists />
+      <CustomRules />
+      <BlockedServices />
+    </div>
   );
 }
 

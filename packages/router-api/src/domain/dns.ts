@@ -1,6 +1,7 @@
 import { settings } from '../settings.ts';
 import type { Transport } from '../transport/types.ts';
 import { writeAndVerify } from '../verify.ts';
+import { adguardAdmin } from './adguard.ts';
 
 export type DnsMode = 'auto' | 'manual' | 'secure' | 'proxy';
 
@@ -113,6 +114,7 @@ export const dns = (t: Transport) => ({
   adguard: settings<AdguardState>(t, 'adguardhome', { timeoutMs: 90_000 }),
 
   protections: protections(t),
+  ...adguardAdmin(t),
 
   async adguardStats(): Promise<AdguardStats> {
     const s = await t.adguard<{
