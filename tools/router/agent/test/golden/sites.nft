@@ -1,9 +1,4 @@
 table inet zeeli_check {
-	define guest_devices = { "br-guest" }
-	define iot_devices = { "br-iot" }
-	define lan_devices = { "br-lan" }
-	define wan_devices = { "eth0", "sta1" }
-
 # Written by the Zeeli agent from your policies. Changes made here are overwritten.
 
 	set zeeli_g_a1b2c3 {
@@ -41,6 +36,18 @@ table inet zeeli_check {
 		ether saddr @zeeli_g_a1b2c3 ip6 daddr @zeeli_s6_000002 counter drop
 		ether saddr @zeeli_c_000002 ip daddr @zeeli_s4_000002 counter drop
 		ether saddr @zeeli_c_000002 ip6 daddr @zeeli_s6_000002 counter drop
+	}
+
+	chain zeeli_d_000002 {
+		ether saddr @zeeli_g_a1b2c3 udp dport 53 redirect to :53
+		ether saddr @zeeli_g_a1b2c3 tcp dport 53 redirect to :53
+		ether saddr @zeeli_c_000002 udp dport 53 redirect to :53
+		ether saddr @zeeli_c_000002 tcp dport 53 redirect to :53
+	}
+
+	chain zeeli_dns {
+		type nat hook prerouting priority -101; policy accept;
+		jump zeeli_d_000002
 	}
 
 	chain zeeli_forward {

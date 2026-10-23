@@ -5,7 +5,7 @@
 
 import { readfile } from 'fs';
 import { eq, ok, test, done } from 'assert';
-import { CASES, ZONE_DEVICES, ZONES, at, base, client, everyNight, group, kids, network, policy, MAYA, LEO, TABLET, TV } from 'cases';
+import { CASES, ZONES, at, base, client, everyNight, group, kids, network, policy, MAYA, LEO, TABLET, TV } from 'cases';
 import * as nft from 'zeeli.nftpolicy';
 
 const bedtime = () => policy('000001', 10, { who: [group('a1b2c3')], when: everyNight });
@@ -14,7 +14,7 @@ const text = (input) => nft.render(nft.compile(input));
 
 for (let name in sort(keys(CASES)))
 	test(`golden output: ${name}`, () => {
-		eq(nft.checkable(text(CASES[name]), ZONE_DEVICES), golden(name), name);
+		eq(nft.checkable(text(CASES[name])), golden(name), name);
 	});
 
 test('a schedule that runs past midnight belongs to the day it starts on', () => {
@@ -98,14 +98,24 @@ test('an allow policy blocks nobody', () => {
 });
 
 test('the internet is every masquerading zone the router names; none means no rules', () => {
-	const two = nft.compile({ ...base, zones: [...ZONES, 'wgclient'], internet: ['wan', 'wgclient'], policies: [policy('000001', 10, { who: [client(TV)] })], now: at(12, 0) });
+	const two = nft.compile({ ...base, zones: { ...ZONES, wgclient: ['wgclient'] }, internet: ['wan', 'wgclient'], policies: [policy('000001', 10, { who: [client(TV)] })], now: at(12, 0) });
 	eq(two.chains[0].rules, [
-		'ether saddr @zeeli_c_000001 oifname $wan_devices counter drop',
-		'ether saddr @zeeli_c_000001 oifname $wgclient_devices counter drop',
+		'ether saddr @zeeli_c_000001 oifname { "eth0", "sta1" } counter drop',
+		'ether saddr @zeeli_c_000001 oifname { "wgclient" } counter drop',
 	]);
-	eq(two.zones, ['wan', 'wgclient']);
 	const none = nft.compile({ ...base, internet: [], policies: [policy('000001', 10, { who: [client(TV)] })], now: at(12, 0) });
 	eq(none.chains[0].rules, []);
+});
+
+test('a zone with no devices matches nothing, and says so', () => {
+	const c = nft.compile({
+		...base,
+		zones: { ...ZONES, ghost: [] },
+		policies: [policy('000001', 10, { who: [network('ghost')], what: { kind: 'network', network: 'lan' } })],
+		now: at(12, 0),
+	});
+	eq(c.chains[0].rules, []);
+	eq(length(c.warnings), 1);
 });
 
 test('an unknown network is skipped with a warning, not an error', () => {
@@ -162,17 +172,17 @@ test('structureOf ignores what is inside policy chains and nothing else', () => 
 	eq(nft.structureOf(night), nft.structureOf(day));
 	const more = text({ ...base, policies: [bedtime(), policy('000002', 20, { who: [client(TV)] })], now: at(12, 0) });
 	ok(nft.structureOf(more) != nft.structureOf(day), 'another policy is a structural change');
-	const bigger = text({ groups: [{ ...kids, members: [MAYA] }], zones: ZONES, internet: ['wan'], policies: [bedtime()], now: at(12, 0) });
+	const bigger = text({ ...base, groups: [{ ...kids, members: [MAYA] }], policies: [bedtime()], now: at(12, 0) });
 	ok(nft.structureOf(bigger) != nft.structureOf(day), 'and so is a group’s membership');
 });
 
-test('live commands swap in each chain with the zone devices spelled out', () => {
+test('live commands swap in each chain', () => {
 	const c = nft.compile({ ...base, policies: [bedtime()], now: at(23, 0) });
-	eq(nft.liveCommands(c, ZONE_DEVICES),
+	eq(nft.liveCommands(c),
 		'flush chain inet fw4 zeeli_p_000001\n' +
 		'add rule inet fw4 zeeli_p_000001 ether saddr @zeeli_g_a1b2c3 oifname { "eth0", "sta1" } counter drop\n');
 	const off = nft.compile({ ...base, policies: [bedtime()], now: at(12, 0) });
-	eq(nft.liveCommands(off, ZONE_DEVICES), 'flush chain inet fw4 zeeli_p_000001\n');
+	eq(nft.liveCommands(off), 'flush chain inet fw4 zeeli_p_000001\n');
 });
 
 test('no policy text ever contains a name a person typed', () => {
@@ -181,13 +191,33 @@ test('no policy text ever contains a name a person typed', () => {
 	ok(index(out, 'flush ruleset') < 0 && index(out, sneaky.name) < 0, 'names stay out of the file');
 });
 
-test('the include is only sets, chains and one base chain at priority -1', () => {
+test('the include is only sets and chains, with two base chains: forward at -1 and, for sites, DNS NAT at -101', () => {
 	const out = text(CASES['sites']);
 	for (let line in split(out, '\n')) {
 		if (match(line, /^(\t(set|chain) zeeli_[a-z0-9_]+ \{|\t\t.*|\t\}|#.*|)$/) == null) die(`unexpected line: ${line}`);
 	}
-	ok(index(out, 'chain zeeli_forward {\n\t\ttype filter hook forward priority -1; policy accept;') >= 0, 'one forward hook');
-	eq(length(filter(split(out, '\n'), (l) => index(l, 'hook ') >= 0)), 1, 'and no other hook');
+	ok(index(out, 'chain zeeli_forward {\n\t\ttype filter hook forward priority -1; policy accept;') >= 0, 'forward hook');
+	ok(index(out, 'chain zeeli_dns {\n\t\ttype nat hook prerouting priority -101; policy accept;') >= 0, 'DNS hook');
+	eq(length(filter(split(out, '\n'), (l) => index(l, 'hook ') >= 0)), 2, 'and no other hook');
+	eq(length(filter(split(text(CASES['group-schedule-night']), '\n'), (l) => index(l, 'hook ') >= 0)), 1, 'no DNS hook without a sites policy');
+});
+
+test('a sites policy sends its devices’ DNS to dnsmasq while it applies', () => {
+	const on = nft.compile(CASES['sites']), off = nft.compile({ ...CASES['sites'], now: at(12, 0), policies: [{ ...CASES['sites'].policies[0], enabled: false }] });
+	eq(on.dns[0].rules, [
+		'ether saddr @zeeli_g_a1b2c3 udp dport 53 redirect to :53',
+		'ether saddr @zeeli_g_a1b2c3 tcp dport 53 redirect to :53',
+		'ether saddr @zeeli_c_000002 udp dport 53 redirect to :53',
+		'ether saddr @zeeli_c_000002 tcp dport 53 redirect to :53',
+	]);
+	eq(off.dns, [{ name: 'zeeli_d_000002', rules: [] }]);
+	ok(index(nft.liveCommands(on), 'flush chain inet fw4 zeeli_d_000002\nadd rule inet fw4 zeeli_d_000002 ether saddr') >= 0, 'swapped live too');
+	eq(nft.structureOf(nft.render(on)), nft.structureOf(nft.render(off)), 'switching it on is not a structural change');
+});
+
+test('a sites policy for a network redirects that network’s DNS', () => {
+	const c = nft.compile({ ...base, policies: [policy('000007', 10, { who: [network('guest')], what: { kind: 'sites', sites: ['tiktok.com'] } })], now: at(12, 0) });
+	eq(c.dns[0].rules, ['iifname { "br-guest" } udp dport 53 redirect to :53', 'iifname { "br-guest" } tcp dport 53 redirect to :53']);
 });
 
 done();

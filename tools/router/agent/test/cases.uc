@@ -4,9 +4,8 @@
 
 import { clock } from 'zeeli.nftpolicy';
 
-/** The GL-BE9300's zones and the devices fw4 gives them, as `nft -c` needs them. */
-const ZONE_DEVICES = { lan: ['br-lan'], guest: ['br-guest'], iot: ['br-iot'], wan: ['eth0', 'sta1'] };
-const ZONES = keys(ZONE_DEVICES);
+/** The GL-BE9300's zones and the devices fw4 gives them. */
+const ZONES = { lan: ['br-lan'], guest: ['br-guest'], iot: ['br-iot'], wan: ['eth0', 'sta1'] };
 
 const MAYA = '02:5e:e1:10:14:c8', LEO = '02:5e:e1:17:2b:c1', TABLET = '02:5e:e1:24:33:d0', TV = '02:5e:e1:31:90:f4';
 
@@ -44,4 +43,4 @@ const CASES = {
 };
 
 // this ucode needs exports listed rather than marked inline
-export { ZONE_DEVICES, ZONES, CASES, at, policy, group, client, network, kids, base, everyNight, MAYA, LEO, TABLET, TV };
+export { ZONES, CASES, at, policy, group, client, network, kids, base, everyNight, MAYA, LEO, TABLET, TV };

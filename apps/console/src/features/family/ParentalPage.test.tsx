@@ -52,21 +52,20 @@ test('the device picker searches by name, IP or MAC', async () => {
   expect(s.queryAllByRole('checkbox').filter((b) => b.closest('.pick'))).toEqual([]);
 });
 
-test(
-  'pausing a profile for an hour',
-  async () => {
-    const user = await renderPage(<ParentalPage />);
-    const card = (await screen.findByRole('heading', { name: 'Leo' })).closest('article') as HTMLElement;
-    await user.click(within(card).getByRole('button', { name: 'Pause internet' }));
-    const s = await sheet();
-    await user.click(s.getByRole('radio', { name: '1 hour' }));
-    await user.click(s.getByRole('button', { name: 'Pause now' }));
-    // a pause is a firewall change, applied with OpenWrt's rollback wait
-    await expectApplied(/^Leo paused until /);
-    expect((await api.family.pauses())[0]).toMatchObject({ until: expect.any(Date) });
-  },
-  APPLYING,
-);
+test('pausing a profile for an hour is a policy the router ends by itself', async () => {
+  const user = await renderPage(<ParentalPage />);
+  const card = (await screen.findByRole('heading', { name: 'Leo' })).closest('article') as HTMLElement;
+  await user.click(within(card).getByRole('button', { name: 'Pause internet' }));
+  const s = await sheet();
+  await user.click(s.getByRole('radio', { name: '1 hour' }));
+  await user.click(s.getByRole('button', { name: 'Pause now' }));
+  await expectToast(/^Leo paused until /);
+  const mine = (await api.family.pauses()).find((p) => p.agent);
+  expect(mine).toMatchObject({ until: expect.any(Date) });
+  const policy = (await api.policies.list()).policies.find((p) => p.tag === `family:${mine?.profileId}`);
+  expect(policy).toMatchObject({ action: { kind: 'block' }, what: { kind: 'everything' } });
+  expect(policy?.until).toBeGreaterThan(Date.now() / 1000);
+});
 
 test('parental control and single profiles switch off', async () => {
   const user = await renderPage(<ParentalPage />);
@@ -87,7 +86,7 @@ test(
       await user.click(within(card).getByRole('button', { name: 'Edit' }));
       await user.click((await sheet()).getByRole('button', { name: 'Delete profile' }));
       await user.click((await confirmDialog()).getByRole('button', { name: 'Delete profile' }));
-      // Leo's pause is lifted too, another firewall change
+      // Leo's pauses are lifted too: the policy and the OpenWrt rule the demo starts with
       await expectApplied(`Deleted ${name}`);
     }
     await user.click(await screen.findByRole('button', { name: /^Teenager/ }));

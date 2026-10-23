@@ -20,6 +20,8 @@ import * as store from 'zeeli.store';
 const INCLUDE_SECTION = 'zeeli_policies';
 const APPLIED_SECTION = 'zeeli_applied';
 const TICK_SECONDS = 30;
+/** After the firewall fails to take a file, wait this long before trying the same file again. */
+const RETRY_SECONDS = 600;
 /** gl_eqos takes KiB/s; people think in Mbps. */
 const KIB_PER_MBPS = 1e6 / 8 / 1024;
 
@@ -156,11 +158,19 @@ function internetZones(c) {
 	return names;
 }
 
+/** The firewall's zones with their devices; a zone fw4 hasn't resolved (or that is off) gets none and so matches nothing. */
+function zoneMap(c) {
+	const known = sys.zoneDevices();
+	const zones = {};
+	for (let name in store.zoneNames(c)) zones[name] = known[name] ?? [];
+	return zones;
+}
+
 function gather(c) {
 	return {
 		groups: store.readGroups(c),
 		policies: store.readPolicies(c),
-		zones: store.zoneNames(c),
+		zones: zoneMap(c),
 		internet: internetZones(c),
 		now: nft.clock(sys.now(), sys.breakdown),
 	};
@@ -182,9 +192,9 @@ function ensureInclude(c) {
 const firstLine = (text) => trim(split(trim(text), '\n')[0] ?? '');
 
 /** Ask `nft -c` whether the firewall would take the file. Returns null when it would, else nft's complaint. */
-function refused(text, zoneDevices) {
+function refused(text) {
 	const file = `${paths.state}/policies.check.nft`;
-	writeAtomic(file, nft.checkable(text, zoneDevices));
+	writeAtomic(file, nft.checkable(text));
 	const r = sys.run(['nft', '-c', '-f', file]);
 	unlink(file);
 	return r.code == 0 ? null : firstLine(r.stdout) || 'it gave no reason';
@@ -192,43 +202,42 @@ function refused(text, zoneDevices) {
 
 const isLoaded = () => sys.run(['nft', 'list', 'chain', 'inet', 'fw4', 'zeeli_forward']).code == 0;
 
-/** Zones the text refers to, with their devices; zones the firewall hasn't told us about count as their own name. */
-function devicesFor(zones) {
-	const known = sys.zoneDevices();
-	const devs = {};
-	let complete = true;
-	for (let z in zones) {
-		if (known[z]) devs[z] = known[z];
-		else (devs[z] = [z], complete = false);
-	}
-	return { devs, complete };
-}
-
-/** Make the firewall match `text`. Returns 'none', 'live' or 'reload', or { error }. */
-function applyFirewall(c, result, text) {
+/**
+ * Make the firewall match `text`. Returns 'none', 'live' or 'reload', or { error }.
+ * If a reload leaves our chain out of the firewall, the previous file goes back, and the same
+ * file isn't tried again for ten minutes, so a file that can't load never becomes a reload loop.
+ */
+function applyFirewall(c, result, text, state) {
 	const path = includePath();
 	const old = readfile(path);
 	const loaded = old != null && isLoaded();
 	if (text == old && (loaded || !length(result.chains))) return 'none';
 	if (old == null && !length(result.chains)) return 'none';
+	if (state.failed?.text == text && sys.now() - state.failed.at < RETRY_SECONDS)
+		return fail('The firewall didn’t take these policies a moment ago, so the router is waiting before it tries again.');
 
-	const found = devicesFor(result.zones);
-	const devs = found.devs, complete = found.complete;
-	const why = refused(text, devs);
+	const why = refused(text);
 	if (why) return fail(`The firewall wouldn’t take these policies (${why}), so nothing was changed.`);
 
 	if (!writeAtomic(path, text)) return fail('The router couldn’t save the policies’ firewall file.');
 	ensureInclude(c);
 
-	if (loaded && complete && nft.structureOf(old) == nft.structureOf(text)) {
+	if (loaded && nft.structureOf(old) == nft.structureOf(text)) {
 		const file = `${paths.state}/policies.live.nft`;
-		writeAtomic(file, nft.liveCommands(result, devs));
+		writeAtomic(file, nft.liveCommands(result));
 		const r = sys.run(['nft', '-f', file]);
 		unlink(file);
 		if (r.code == 0) return 'live';
 	}
 	sys.reload('firewall');
-	return 'reload';
+	if (isLoaded()) return 'reload';
+
+	// the reload didn't bring our chain up: put back what worked, so a bad file can't leave the firewall without it
+	state.failed = { text, at: sys.now() };
+	if (old != null) writeAtomic(path, old);
+	else unlink(path);
+	sys.reload('firewall');
+	return fail('The firewall didn’t load the policies, so they were rolled back. Check the system log for what it said.');
 }
 
 /* ---------- sites, through dnsmasq ---------- */
@@ -363,16 +372,21 @@ function endConnections(macs) {
 function reconcile(c) {
 	const result = nft.compile(gather(c));
 	const text = nft.render(result);
+	const state = readState();
 
-	const applied = applyFirewall(c, result, text);
-	if (type(applied) == 'object') return applied;
+	const applied = applyFirewall(c, result, text, state);
+	if (type(applied) == 'object') {
+		saveState(state);
+		return applied;
+	}
+	delete state.failed;
 	syncSites(c, result);
 	const warnings = [...result.warnings, ...syncLimits(c, result)];
 
-	const state = readState();
 	const fresh = filter(result.blocked, (mac) => index(state.blocked, mac) < 0);
 	if (length(fresh)) endConnections(fresh);
-	saveState({ blocked: result.blocked });
+	state.blocked = result.blocked;
+	saveState(state);
 	pokeSites(result);
 
 	return { applied, warnings, limits: result.limits, blocked: result.blocked, active: result.active };
@@ -433,12 +447,17 @@ function tick() {
 
 /** The loop the `zeeli-policies` service runs. */
 function serve() {
+	let said = null;
 	while (true) {
+		let trouble = null;
 		try {
-			tick();
+			trouble = tick().error;
 		} catch (e) {
-			warn(`zeeli-policies: ${e.message}\n`);
+			trouble = e.message;
 		}
+		// each problem once, not every 30 seconds
+		if (trouble && trouble != said) warn(`zeeli-policies: ${trouble}\n`);
+		said = trouble;
 		sleep(TICK_SECONDS * 1000);
 	}
 }

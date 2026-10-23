@@ -143,11 +143,11 @@ const isDomain = (d) =>
 /** A firewall zone name, which is also the network's id in policies. */
 const isZoneName = (v) => type(v) == 'string' && match(v, /^[A-Za-z][A-Za-z0-9_]{0,31}$/) != null;
 
-/** The firewall zones that exist, by name. */
+/** The firewall zones that are switched on, by name. */
 function zoneNames(c) {
 	const names = [];
 	c.foreach('firewall', 'zone', (z) => {
-		if (isZoneName(z.name)) push(names, z.name);
+		if (isZoneName(z.name) && z.enabled != '0') push(names, z.name);
 	});
 	return names;
 }

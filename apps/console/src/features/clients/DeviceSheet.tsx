@@ -13,6 +13,7 @@ import { Row2, SelectField, SwitchRow, TextField } from '../../ui/fields.tsx';
 import { KeyValues } from '../../ui/Layout.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
 import { Sparkline } from '../../ui/Sparkline.tsx';
+import { DeviceGroups } from './DeviceGroups.tsx';
 
 const toMbps = (kib: number) => Number((kib / KIB_PER_MBPS).toFixed(1));
 
@@ -78,6 +79,7 @@ function DeviceForm({ client, onClose, onBlock, onForget }: Props & { client: Cl
           </Row2>
         ) : null}
       </section>
+      <DeviceGroups client={client} />
       <Address client={client} />
       <Details client={client} onForget={onForget} />
     </Sheet>

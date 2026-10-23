@@ -8,14 +8,17 @@ import { includePath, sys } from 'zeeli.policyapply';
 
 /** Thursday 22 October 2026, 12:00 UTC, which the tests treat as the router's local time. */
 const NOON = 1792627200 + 12 * 3600;
+const realReload = sys.reload;
 
 function reset() {
 	const fixtures = `${getenv('ZEELI_AGENT')}/test/fixtures/be9300`;
 	writefile(`${paths.confdir}/zeeli`, '');
 	for (let file in ['dhcp', 'firewall', 'network']) writefile(`${paths.confdir}/${file}`, readfile(`${fixtures}/${file}`));
+	unlink(`${paths.confdir}/qos`);
 	unlink(includePath());
 	unlink(`${paths.state}/policies.json`);
 	sys.calls = [];
+	sys.reload = realReload;
 	sys.answer = (argv) => ({ code: 0, stdout: '' });
 	sys.now = () => NOON;
 	sys.breakdown = gmtime;

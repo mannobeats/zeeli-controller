@@ -198,7 +198,7 @@ test('there are up to 128 policies, and up to 32 people, groups and networks in 
 test('a new policy is checked, written to the include and loaded', () => {
 	reset();
 	const p = make({ who: [{ type: 'client', id: TV }] });
-	ok(index(included(), `chain zeeli_p_${p.id} {\n\t\tether saddr @zeeli_c_${p.id} oifname $wan_devices counter drop\n\t}`) >= 0, included());
+	ok(index(included(), `chain zeeli_p_${p.id} {\n\t\tether saddr @zeeli_c_${p.id} oifname { "eth0", "sta1" } counter drop\n\t}`) >= 0, included());
 	const check = ran('nft')[0];
 	ok(match(check, /^nft -c -f .*policies\.check\.nft$/), check);
 	eq(ran('reload'), ['reload firewall']);
@@ -208,7 +208,7 @@ test('a new policy is checked, written to the include and loaded', () => {
 	eq(mine.path, paths.state + '/include/policies.nft');
 });
 
-test('the check sees a complete, valid file with the router’s zone devices', () => {
+test('the check sees the whole include in a scratch table', () => {
 	reset();
 	let seen = null;
 	sys.answer = (argv) => {
@@ -216,8 +216,9 @@ test('the check sees a complete, valid file with the router’s zone devices', (
 		return { code: 0, stdout: '' };
 	};
 	make({});
-	ok(index(seen, 'table inet zeeli_check {\n\tdefine wan_devices = { "eth0", "sta1" }\n') == 0, seen);
+	ok(index(seen, 'table inet zeeli_check {\n') == 0, seen);
 	ok(index(seen, 'chain zeeli_forward {') > 0, 'the whole include is in it');
+	ok(index(seen, '$') < 0, 'with no fw4 defines to depend on');
 });
 
 test('when the firewall would refuse the file, nothing changes and the old file stays', () => {
@@ -249,7 +250,7 @@ test('switching a policy off or on only swaps rules on the running firewall', ()
 	ok(index(included(), 'counter drop') > 0);
 });
 
-test('the live swap spells out zone devices, since fw4’s defines don’t exist outside fw4', () => {
+test('the live swap carries the same rules as the file', () => {
 	reset();
 	const p = make({});
 	let sent = null;
@@ -260,6 +261,49 @@ test('the live swap spells out zone devices, since fw4’s defines don’t exist
 	policies.update({ id: p.id, enabled: false });
 	policies.update({ id: p.id, enabled: true });
 	eq(sent, `flush chain inet fw4 zeeli_p_${p.id}\nadd rule inet fw4 zeeli_p_${p.id} ether saddr @zeeli_c_${p.id} oifname { "eth0", "sta1" } counter drop\n`);
+});
+
+test('a network whose devices change is a live change, noticed by the loop', () => {
+	reset();
+	const p = make({});
+	sys.zoneDevices = () => ({ lan: ['br-lan'], guest: ['br-guest'], iot: ['br-iot'], wan: ['eth1'] });
+	sys.calls = [];
+	eq(tick().applied, 'live');
+	ok(index(included(), 'oifname { "eth1" }') > 0, included());
+	ok(index(included(), 'sta1') < 0);
+	eq(ran('reload'), []);
+});
+
+test('a policy for a network the firewall has no devices for does nothing and warns', () => {
+	reset();
+	sys.zoneDevices = () => ({ lan: ['br-lan'] });
+	const r = policies.create({ name: 'X', who: [{ type: 'client', id: TV }], what: { kind: 'internet' }, when: { kind: 'always' }, action: { kind: 'block' } });
+	eq(r.applied, 'reload');
+	ok(index(included(), 'counter drop') < 0, 'no rule without a device to match');
+});
+
+test('zones that are switched off are not networks a policy can name', () => {
+	reset();
+	writefile(`${paths.confdir}/firewall`, `${readfile(`${paths.confdir}/firewall`)}\nconfig zone\n\toption name 'off1'\n\toption enabled '0'\n`);
+	eq(policies.create({ name: 'X', who: [{ type: 'network', id: 'off1' }], what: { kind: 'internet' }, when: { kind: 'always' }, action: { kind: 'block' } }).error, 'The firewall has no network called off1.');
+});
+
+test('if the firewall comes back without our chain, the previous file is put back', () => {
+	reset();
+	const a = make({ name: 'First' });
+	const before = included();
+	sys.calls = [];
+	let reloads = 0;
+	sys.reload = function(name) {
+		reloads++;
+		push(this.calls, ['reload', name]);
+	};
+	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' && reloads == 1 ? { code: 1, stdout: 'No such file or directory' } : { code: 0, stdout: '' });
+	const r = policies.create({ name: 'Second', who: [{ type: 'client', id: LEO }], what: { kind: 'internet' }, when: { kind: 'always' }, action: { kind: 'block' } });
+	eq(r.error, 'The firewall didn’t load the policies, so they were rolled back. Check the system log for what it said.');
+	eq(included(), before, 'the old file is back');
+	eq(reloads, 2, 'and the firewall was reloaded with it');
+	eq(map(policies.list().policies, (p) => p.id), [a.id], 'the new policy was not kept');
 });
 
 test('a live swap the firewall refuses falls back to a reload', () => {
@@ -283,9 +327,29 @@ test('the firewall is reloaded if our chain isn’t in it, e.g. after it restart
 	reset();
 	make({});
 	sys.calls = [];
-	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' ? { code: 1, stdout: 'No such file or directory' } : { code: 0, stdout: '' });
+	let reloaded = false;
+	sys.reload = function(name) {
+		reloaded = true;
+		push(this.calls, ['reload', name]);
+	};
+	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' && !reloaded ? { code: 1, stdout: 'No such file or directory' } : { code: 0, stdout: '' });
 	eq(tick().applied, 'reload');
 	eq(ran('reload'), ['reload firewall']);
+});
+
+test('a file the firewall can’t load is not tried again every 30 seconds', () => {
+	reset();
+	make({});
+	sys.calls = [];
+	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' ? { code: 1, stdout: 'No such file or directory' } : { code: 0, stdout: '' });
+	ok(match(tick().error, /rolled back/));
+	eq(length(ran('reload')), 2, 'one reload to try, one to go back');
+	sys.calls = [];
+	ok(match(tick().error, /waiting before it tries again/));
+	eq(ran('reload'), [], 'nothing more for ten minutes');
+	sys.now = () => NOON + 601;
+	ok(match(tick().error, /rolled back/));
+	eq(length(ran('reload')), 2, 'then once more');
 });
 
 test('with no policies at all, the agent leaves the firewall alone', () => {

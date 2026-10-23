@@ -29,6 +29,7 @@ import { Loaded } from '../../ui/Loading.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
 import { TextArea } from '../../ui/TextArea.tsx';
+import { PolicyNote } from '../policies/AgentNote.tsx';
 import { checkForwardPorts } from './forward.ts';
 
 const ZONE: Record<string, string> = { wan: 'Internet', lan: 'Main LAN', guest: 'Guest', iot: 'IoT' };
@@ -425,6 +426,9 @@ export function AccessPage() {
               </Button>
             }
           />
+          <PolicyNote>
+            These rules follow addresses and ports between networks. To block people or devices, by group and schedule, see
+          </PolicyNote>
           <Panel>
             {rules.length ? (
               <RuleTable

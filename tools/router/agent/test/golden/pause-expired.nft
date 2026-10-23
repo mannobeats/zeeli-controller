@@ -1,9 +1,4 @@
 table inet zeeli_check {
-	define guest_devices = { "br-guest" }
-	define iot_devices = { "br-iot" }
-	define lan_devices = { "br-lan" }
-	define wan_devices = { "eth0", "sta1" }
-
 # Written by the Zeeli agent from your policies. Changes made here are overwritten.
 
 	set zeeli_c_000005 {

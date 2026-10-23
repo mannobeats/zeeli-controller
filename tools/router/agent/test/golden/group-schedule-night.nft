@@ -1,9 +1,4 @@
 table inet zeeli_check {
-	define guest_devices = { "br-guest" }
-	define iot_devices = { "br-iot" }
-	define lan_devices = { "br-lan" }
-	define wan_devices = { "eth0", "sta1" }
-
 # Written by the Zeeli agent from your policies. Changes made here are overwritten.
 
 	set zeeli_g_a1b2c3 {
@@ -16,7 +11,7 @@ table inet zeeli_check {
 	}
 
 	chain zeeli_p_000001 {
-		ether saddr @zeeli_g_a1b2c3 oifname $wan_devices counter drop
+		ether saddr @zeeli_g_a1b2c3 oifname { "eth0", "sta1" } counter drop
 	}
 
 	chain zeeli_forward {

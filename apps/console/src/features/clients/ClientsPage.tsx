@@ -12,6 +12,8 @@ import { DeviceIcon, Swatch } from '../../ui/DeviceIcon.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { Chip, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { SectionPanel } from '../../ui/SectionPanel.tsx';
+import { PolicyNote } from '../policies/AgentNote.tsx';
+import { ClientPages } from './ClientPages.tsx';
 import { DeviceSheet } from './DeviceSheet.tsx';
 
 type Status = 'all' | 'online' | 'offline' | 'blocked';
@@ -94,6 +96,7 @@ export default function ClientsPage() {
   return (
     <>
       <PageHeader title="Clients" sub={`${all.filter((c) => c.online).length} online of ${all.length} known`} />
+      <ClientPages current="clients" />
       <ClientFilters
         all={all}
         status={status}
@@ -172,6 +175,7 @@ export default function ClientsPage() {
           <NoClients needle={needle} q={q} status={status} filtered={cats.size > 0} clear={() => setQ('')} />
         )}
       </Panel>
+      <PolicyNote>Blocking here is on or off. For bedtimes, timed pauses and whole groups of devices, see</PolicyNote>
       <DeviceSheet
         client={current}
         onClose={() => setOpen(null)}

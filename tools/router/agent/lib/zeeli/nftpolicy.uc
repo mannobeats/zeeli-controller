@@ -8,10 +8,16 @@
 //   - one chain per policy, holding that policy's rules while it applies and nothing while it
 //     doesn't, so a schedule or an expiry only ever changes chain bodies
 //   - `zeeli_forward`, a base chain at priority -1 that jumps to the policy chains in order
-// Zone devices are written as fw4's own `$<zone>_devices` defines, so they follow the firewall.
+//   - for "sites" policies, a chain that sends the covered devices' DNS to dnsmasq (see below),
+//     hooked from `zeeli_dns`, a NAT base chain that runs before GL's own DNS redirects
+// A zone's devices are written out ("br-lan"), not as fw4's `$<zone>_devices` defines: a define for
+// a zone that has since gone would stop fw4 loading anything at all, while an interface name that
+// doesn't exist is only a rule that never matches. The agent rewrites the file when devices change.
 'use strict';
 
 const BLOCK_PRIORITY = -1;
+/** One before fw4's and GL's dstnat chains (-100), so a device's DNS is sent to dnsmasq before GL sends it to AdGuard Home. */
+const DNS_PRIORITY = -101;
 const SITE_SET_SIZE = 4096;
 const SITE_TIMEOUT = 3600;
 
@@ -50,11 +56,8 @@ function isActive(policy, now) {
 
 const lower = (macs) => uniq(map(macs, (m) => lc(m)));
 
-/** A zone's devices as fw4 defines them; the zone is noted so the caller knows which defines the text needs. */
-function devices(zone, out) {
-	if (index(out.zones, zone) < 0) push(out.zones, zone);
-	return `$${zone}_devices`;
-}
+/** `{ "eth0", "sta1" }` for a list of devices. */
+const literal = (devs) => `{ ${join(', ', map(devs, (d) => `"${d}"`))} }`;
 
 /** `elements = { … }` for a set, or nothing when it has none. */
 function elements(items) {
@@ -63,7 +66,7 @@ function elements(items) {
 }
 
 /** Source matches for each "who" of a policy, and the MACs it covers. */
-function sources(policy, groupsById, known, out, used) {
+function sources(policy, groupsById, zones, out, used) {
 	const matches = [], macs = [], clients = [];
 	for (let w in policy.who) {
 		if (w.type == 'group') {
@@ -75,7 +78,7 @@ function sources(policy, groupsById, known, out, used) {
 		} else if (w.type == 'client') {
 			push(clients, w.id);
 		} else if (w.type == 'network') {
-			if (known[w.id]) push(matches, `iifname ${devices(w.id, out)}`);
+			if (length(zones[w.id])) push(matches, `iifname ${literal(zones[w.id])}`);
 			else push(out.warnings, `${policy.name}: the network “${w.id}” isn’t in the firewall, so that part is skipped.`);
 		}
 	}
@@ -87,16 +90,28 @@ function sources(policy, groupsById, known, out, used) {
 }
 
 /** Destination matches for "what". An empty string matches any destination. */
-function destinations(policy, known, internetZones, out) {
+function destinations(policy, zones, internetZones, out) {
 	const what = policy.what;
 	if (what.kind == 'everything') return [''];
-	if (what.kind == 'internet') return map(filter(internetZones, (z) => known[z]), (z) => `oifname ${devices(z, out)}`);
+	if (what.kind == 'internet') return map(filter(internetZones, (z) => length(zones[z])), (z) => `oifname ${literal(zones[z])}`);
 	if (what.kind == 'sites') return [`ip daddr @zeeli_s4_${policy.id}`, `ip6 daddr @zeeli_s6_${policy.id}`];
 	if (what.kind == 'network') {
-		if (known[what.network]) return [`oifname ${devices(what.network, out)}`];
+		if (length(zones[what.network])) return [`oifname ${literal(zones[what.network])}`];
 		push(out.warnings, `${policy.name}: the network “${what.network}” isn’t in the firewall, so this policy does nothing.`);
 	}
 	return [];
+}
+
+/**
+ * Send these sources' DNS to dnsmasq (port 53 on the router). dnsmasq fills the site sets from
+ * the answers it forwards. With AdGuard Home on, GL otherwise sends devices' DNS straight to
+ * AdGuard (port 3053) and dnsmasq never sees it; dnsmasq's own upstream is AdGuard, so the
+ * filtering still happens.
+ */
+function redirects(srcs) {
+	const lines = [];
+	for (let s in srcs) push(lines, `${s} udp dport 53 redirect to :53`, `${s} tcp dport 53 redirect to :53`);
+	return lines;
 }
 
 /** Rule lines for a policy that applies now: every source against every destination. */
@@ -112,26 +127,24 @@ function rulesFor(policy, srcs, dsts) {
  * Work out everything the router has to do for these policies at this moment.
  *   input.groups     [{ id, members: [MAC] }]
  *   input.policies   normalised policies (see zeeli.policies), any order
- *   input.zones      names of the firewall zones that exist
+ *   input.zones      { zone name: [devices] } for the firewall zones, as fw4 resolved them
  *   input.internet   names of the zones that count as "the internet"
  *   input.now        { ts, wday, minutes } from `clock`
  * Returns the sets and chains to declare, the speed limits that apply, who is blocked, the
- * domains to hand to dnsmasq, the zones whose `$<zone>_devices` defines the text uses, and warnings
- * for parts that were skipped.
+ * domains to hand to dnsmasq, and warnings for parts that were skipped.
  */
 function compile(input) {
-	const known = {}, groupsById = {};
-	for (let z in input.zones) known[z] = true;
+	const groupsById = {};
 	for (let g in input.groups) groupsById[g.id] = g;
 
-	const out = { sets: [], chains: [], limits: [], blocked: [], sites: {}, active: [], zones: [], warnings: [] };
+	const out = { sets: [], chains: [], dns: [], limits: [], blocked: [], sites: {}, active: [], warnings: [] };
 	const claimed = {}, used = {};
 	// switched-off policies keep their (empty) chain, so switching one on is a live change
 	const policies = sort([...input.policies], (a, b) => a.order - b.order || (a.id < b.id ? -1 : 1));
 
 	for (let p in policies) {
 		const on = isActive(p, input.now);
-		const src = sources(p, groupsById, known, out, p.action.kind == 'limit' ? null : used);
+		const src = sources(p, groupsById, input.zones, out, p.action.kind == 'limit' ? null : used);
 		if (on) push(out.active, p.id);
 
 		if (p.action.kind == 'limit') {
@@ -146,11 +159,12 @@ function compile(input) {
 			continue;
 		}
 
-		const dsts = destinations(p, known, input.internet, out);
+		const dsts = destinations(p, input.zones, input.internet, out);
 		if (length(src.clients)) push(out.sets, { name: `zeeli_c_${p.id}`, kind: 'mac', items: src.clients });
 		if (p.what.kind == 'sites') {
 			push(out.sets, { name: `zeeli_s4_${p.id}`, kind: 'ip4' }, { name: `zeeli_s6_${p.id}`, kind: 'ip6' });
 			out.sites[p.id] = p.what.sites;
+			push(out.dns, { name: `zeeli_d_${p.id}`, rules: on ? redirects(src.matches) : [] });
 		}
 		push(out.chains, { name: `zeeli_p_${p.id}`, rules: on ? rulesFor(p, src.matches, dsts) : [] });
 		if (on && p.action.kind == 'block') push(out.blocked, ...src.macs);
@@ -172,8 +186,13 @@ function renderSet(s) {
 function render(c) {
 	const parts = ['# Written by the Zeeli agent from your policies. Changes made here are overwritten.\n\n'];
 	for (let s in c.sets) push(parts, renderSet(s), '\n');
-	for (let ch in c.chains)
+	for (let ch in [...c.chains, ...c.dns])
 		push(parts, `\tchain ${ch.name} {\n`, ...map(ch.rules, (r) => `\t\t${r}\n`), '\t}\n\n');
+	if (length(c.dns)) {
+		push(parts, `\tchain zeeli_dns {\n\t\ttype nat hook prerouting priority ${DNS_PRIORITY}; policy accept;\n`);
+		for (let ch in c.dns) push(parts, `\t\tjump ${ch.name}\n`);
+		push(parts, '\t}\n\n');
+	}
 	push(parts, `\tchain zeeli_forward {\n\t\ttype filter hook forward priority ${BLOCK_PRIORITY}; policy accept;\n`);
 	for (let ch in c.chains) push(parts, `\t\tjump ${ch.name}\n`);
 	push(parts, '\t}\n');
@@ -182,14 +201,14 @@ function render(c) {
 
 /**
  * The file without the rules inside policy chains. Two files with the same structure differ
- * only by what a schedule or an expiry switches on and off, which can change on a running
- * firewall; any other difference needs a firewall reload.
+ * only by what a schedule, an expiry or a change of devices switches on and off, which can
+ * change on a running firewall; any other difference needs a firewall reload.
  */
 function structureOf(text) {
 	const keep = [];
 	let inside = false;
 	for (let line in split(text, '\n')) {
-		if (match(line, /^\tchain zeeli_p_[0-9a-f]+ \{$/)) inside = true;
+		if (match(line, /^\tchain zeeli_[pd]_[0-9a-f]+ \{$/)) inside = true;
 		else if (inside && line == '\t}') inside = false;
 		else if (inside) continue;
 		push(keep, line);
@@ -197,30 +216,18 @@ function structureOf(text) {
 	return join('\n', keep);
 }
 
-/** `{ "eth0", "sta1" }` for a list of devices. */
-const literal = (devs) => `{ ${join(', ', map(devs, (d) => `"${d}"`))} }`;
-
-/** Replace the `$<zone>_devices` defines in a rule with the devices themselves (for `nft -f` outside fw4). */
-function expand(rule, zoneDevices) {
-	for (let zone in keys(zoneDevices)) rule = replace(rule, `$${zone}_devices`, literal(zoneDevices[zone]));
-	return rule;
-}
-
 /** nft commands that swap in the current rules of every policy chain on a running firewall. */
-function liveCommands(c, zoneDevices) {
+function liveCommands(c) {
 	const lines = [];
-	for (let ch in c.chains) {
+	for (let ch in [...c.chains, ...c.dns]) {
 		push(lines, `flush chain inet fw4 ${ch.name}\n`);
-		for (let r in ch.rules) push(lines, `add rule inet fw4 ${ch.name} ${expand(r, zoneDevices)}\n`);
+		for (let r in ch.rules) push(lines, `add rule inet fw4 ${ch.name} ${r}\n`);
 	}
 	return join('', lines);
 }
 
-/** The include as a file `nft -c -f` can check on its own: a scratch table with fw4's zone defines. */
-function checkable(text, zoneDevices) {
-	const defs = map(sort(keys(zoneDevices)), (z) => `\tdefine ${z}_devices = ${literal(zoneDevices[z])}\n`);
-	return `table inet zeeli_check {\n${join('', defs)}\n${text}}\n`;
-}
+/** The include as a file `nft -c -f` can check on its own, in a scratch table. */
+const checkable = (text) => `table inet zeeli_check {\n${text}}\n`;
 
 // this ucode needs exports listed rather than marked inline
-export { toMinutes, clock, inWindow, isActive, compile, render, structureOf, expand, liveCommands, checkable };
+export { toMinutes, clock, inWindow, isActive, compile, render, structureOf, liveCommands, checkable };
