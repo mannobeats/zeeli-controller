@@ -1,4 +1,4 @@
-import { type Icon, IconFocusCentered, IconNetwork, IconRouter, IconSearch, IconWorld } from '@tabler/icons-react';
+import { IconFocusCentered, IconNetwork, IconRouter, IconSearch, IconWorld } from '@tabler/icons-react';
 import {
   Background,
   Controls,
@@ -25,16 +25,12 @@ import { plural, rateText } from '../../lib/format.ts';
 import { Button } from '../../ui/Button.tsx';
 import { Swatch } from '../../ui/DeviceIcon.tsx';
 import { PageHeader } from '../../ui/Layout.tsx';
+import { type CoreData, extraGraph, NODE } from './extras.ts';
 import { absolute, litPath } from './path.ts';
+import { useExtras } from './useExtras.ts';
 
 /* ---------- node data ---------- */
 
-interface CoreData extends Record<string, unknown> {
-  kind: 'internet' | 'uplink' | 'router' | 'network';
-  title: string;
-  sub: string;
-  icon: Icon;
-}
 interface DeviceData extends Record<string, unknown> {
   kind: 'device';
   client: Client;
@@ -50,8 +46,6 @@ type TopoNode = Node<CoreData, 'core'> | Node<NetworkData, 'network'> | Node<Dev
 /** 1.5px idle up to 7px at about 100 Mbps, on a log scale so small talkers still show. */
 const wireWidth = (bytesPerSec: number) => 1.5 + Math.min(5.5, Math.log10(1 + (bytesPerSec * 8) / 1e5) * 2.75);
 
-/** Fixed sizes, so fit-to-view and the minimap are right before the DOM is measured. */
-const NODE = { width: 200, height: 44 } as const;
 const GAP = 12;
 const PAD = 16;
 const HEAD = 52;
@@ -139,13 +133,16 @@ const CoreNode = memo(function CoreNode({ data }: NodeProps<Node<CoreData, 'core
   const I = data.icon;
   return (
     <div className={`topo-node core ${data.kind}`}>
-      {data.kind === 'internet' ? null : <Handle type="target" position={Position.Left} />}
+      {data.kind === 'internet' ? null : (
+        <Handle type="target" position={data.kind === 'mesh' || data.kind === 'port' ? Position.Top : Position.Left} />
+      )}
       <I size={20} stroke={1.75} />
       <div>
         <b>{data.title}</b>
         {data.sub ? <span>{data.sub}</span> : null}
       </div>
       <Handle type="source" position={Position.Right} />
+      {data.kind === 'router' ? <Handle type="source" position={Position.Bottom} id="below" /> : null}
     </div>
   );
 });
@@ -212,10 +209,13 @@ function useGraph(showOffline: boolean) {
   const rep = useQuery({ queryKey: ['repeater'], queryFn: api.internet.repeater, enabled: active?.id === 'wwan' }).data;
   const uplinkSub = rep?.connected ? `${rep.ssid}${rep.signal == null ? '' : ` · ${String(rep.signal).replace('-', '−')} dBm`}` : undefined;
   const shown = showOffline ? clients : clients.filter((c) => c.online);
-  const graph = useMemo(
-    () => buildGraph(shown, nets.data ?? [], info?.hostname ?? 'Router', status?.lanIp ?? '', uplink, uplinkSub),
-    [shown, nets.data, info?.hostname, status?.lanIp, uplink, uplinkSub],
-  );
+  const extra = useExtras();
+  const graph = useMemo(() => {
+    const g = buildGraph(shown, nets.data ?? [], info?.hostname ?? 'Router', status?.lanIp ?? '', uplink, uplinkSub);
+    const router = g.nodes.find((n) => n.id === 'router')?.position ?? { x: 520, y: 0 };
+    const more = extraGraph(router, { ...extra, deviceIds: new Set(g.nodes.map((n) => n.id)) });
+    return { nodes: [...g.nodes, ...more.nodes], edges: [...g.edges, ...more.edges] };
+  }, [shown, nets.data, info?.hostname, status?.lanIp, uplink, uplinkSub, extra]);
   return { clients, nets: nets.data ?? [], graph, ready: Boolean(nets.data && clientsQuery.data) };
 }
 

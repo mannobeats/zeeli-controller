@@ -1,6 +1,6 @@
 import { fireEvent, screen } from '@testing-library/react';
 import type { Client } from '@zeeli/router-api';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { api } from '../../api/router.ts';
 import { renderPage } from '../../test/render.tsx';
 import TopologyPage from './TopologyPage.tsx';
@@ -50,4 +50,27 @@ test('clicking a node focuses it, clicking again lets go', async () => {
   expect(nodeOf(on.name).classList).toContain('lit');
   fireEvent.click(screen.getByText(on.name));
   expect(nodeOf(on.name).classList).not.toContain('lit');
+});
+
+test('mesh nodes and the ports with a cable join the map', async () => {
+  await api.networkExtras.mesh.config.set({ enabled: true, mode: 'controller' });
+  await renderPage(<TopologyPage />);
+  expect(await screen.findByText('Upstairs')).toBeTruthy();
+  expect(await screen.findByText('WiFi · -57 dBm · 6 clients')).toBeTruthy();
+  expect(await screen.findByText('Wired · 3 clients')).toBeTruthy();
+  expect(await screen.findByText('LAN1')).toBeTruthy();
+  expect(screen.getAllByText('1 Gb/s')).toHaveLength(2);
+  expect(screen.getByText('Internet · 2.5 Gb/s')).toBeTruthy();
+  expect(screen.queryByText('LAN2')).toBeNull();
+  await api.networkExtras.mesh.config.set({ enabled: false });
+});
+
+test('without the agent or mesh the map is just clients and networks', async () => {
+  vi.spyOn(api.agent, 'version').mockResolvedValue(null);
+  const { on } = await split();
+  await renderPage(<TopologyPage />);
+  await screen.findByText(on.name);
+  expect(screen.queryByText('LAN1')).toBeNull();
+  expect(screen.queryByText('Upstairs')).toBeNull();
+  vi.restoreAllMocks();
 });

@@ -7,7 +7,7 @@ type Args = Record<string, unknown>;
 type Handler = (state: MockState, args: Args, ctx: { uptime: number }) => unknown;
 
 /** Mutable demo state that isn't in the seed's typed core, kept per mock router. */
-const keep = <T>(s: MockState, key: string, init: () => T): T => {
+export const keep = <T>(s: MockState, key: string, init: () => T): T => {
   if (!s.extra.has(key)) s.extra.set(key, init());
   return s.extra.get(key) as T;
 };

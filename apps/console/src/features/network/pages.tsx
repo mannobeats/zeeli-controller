@@ -28,6 +28,8 @@ import { Address, Chip, Empty, Note, PageHeader, Panel, Stack, ToneText } from '
 import { Loaded } from '../../ui/Loading.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
+import { MeshNodes } from './mesh-nodes.tsx';
+import { AgentPorts } from './ports-agent.tsx';
 
 /* ======================= Ethernet ports ======================= */
 
@@ -152,6 +154,7 @@ export function PortsPage() {
                 ]}
               />
             </Panel>
+            <AgentPorts ports={ports} networks={networks} />
             {editing ? (
               <PortSheet
                 key={editing.name}
@@ -809,6 +812,7 @@ export function MeshPage() {
               {m.enabled ? <Button onClick={() => setAdding(true)}>Add nodes</Button> : null}
             </div>
           </Panel>
+          {m.enabled ? <MeshNodes /> : null}
           {adding ? <MeshScan onClose={() => setAdding(false)} /> : null}
         </>
       )}

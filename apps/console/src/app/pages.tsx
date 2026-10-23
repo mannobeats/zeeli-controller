@@ -69,6 +69,7 @@ export const PAGE_COMPONENTS: Record<string, LazyExoticComponent<ComponentType>>
 
   device: from(system, 'DevicePage'),
   firmware: from(system, 'FirmwarePage'),
+  backup: from(() => import('../features/system/BackupPage.tsx')),
   schedules: from(system, 'SchedulesPage'),
   time: from(system, 'TimePage'),
   logs: from(system, 'LogsPage'),

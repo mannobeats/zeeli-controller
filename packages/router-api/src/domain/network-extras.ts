@@ -23,6 +23,84 @@ export interface MeshNode {
   signal: number | null;
 }
 
+/** A node that has joined the mesh. */
+export interface MeshMember {
+  mac: string;
+  name: string;
+  model: string;
+  ip: string;
+  /** This router (the controller) is listed too; it can’t be removed or rebooted from here. */
+  self: boolean;
+  online: boolean;
+  /** How the node reaches the controller. */
+  backhaul: 'wired' | 'wireless' | null;
+  band: string | null;
+  /** dBm, for a wireless backhaul. */
+  signal: number | null;
+  clients: number;
+  /** Seconds, when the node reports it. */
+  uptime: number | null;
+}
+
+/**
+ * GL’s `mesh.get_topology` answer. The shape isn’t documented and mesh was off when it was
+ * studied, so every field is read under the names its other methods and the firmware’s
+ * scripts use, and a missing one stays empty rather than failing the page.
+ */
+interface RawMeshNode {
+  mac?: string;
+  macaddr?: string;
+  name?: string;
+  node_name?: string;
+  hostname?: string;
+  model?: string;
+  ip?: string;
+  ipaddr?: string;
+  role?: string;
+  is_controller?: boolean;
+  online?: boolean | number | string;
+  status?: string;
+  backhaul?: string | { type?: string; band?: string; signal?: number; rssi?: number };
+  connection?: { type?: string; band?: string; signal?: number; rssi?: number };
+  band?: string;
+  signal?: number;
+  rssi?: number;
+  clients?: number | unknown[];
+  client_count?: number;
+  uptime?: number | string;
+}
+
+const WIRED = /eth|wire|cable|lan/;
+
+/** How a node reaches the controller, from whichever of GL’s fields carries it. */
+function backhaulOf(n: RawMeshNode) {
+  const link = typeof n.backhaul === 'object' ? n.backhaul : (n.connection ?? {});
+  const kind = (typeof n.backhaul === 'string' ? n.backhaul : (link.type ?? '')).toLowerCase();
+  const type = WIRED.test(kind) ? 'wired' : kind ? 'wireless' : null;
+  const dbm = link.signal ?? link.rssi ?? n.signal ?? n.rssi ?? null;
+  return { type, band: link.band ?? n.band ?? null, signal: type === 'wireless' ? dbm : null } as const;
+}
+
+const isOnline = (n: RawMeshNode) => ![false, 0, '0'].includes(n.online as never) && !/off|down/i.test(n.status ?? '');
+const clientCount = (n: RawMeshNode) => (Array.isArray(n.clients) ? n.clients.length : (n.clients ?? n.client_count ?? 0));
+
+const toMember = (n: RawMeshNode): MeshMember => {
+  const link = backhaulOf(n);
+  return {
+    mac: (n.mac ?? n.macaddr ?? '').toUpperCase(),
+    name: n.name ?? n.node_name ?? n.hostname ?? '',
+    model: n.model ?? 'GL.iNet',
+    ip: n.ip ?? n.ipaddr ?? '',
+    self: n.role === 'controller' || n.is_controller === true,
+    online: isOnline(n),
+    backhaul: link.type,
+    band: link.band,
+    signal: link.signal,
+    clients: clientCount(n),
+    uptime: n.uptime === undefined ? null : Number(n.uptime) || 0,
+  };
+};
+
 export const networkExtras = (t: Transport) => ({
   ipv6: settings<Ipv6Config>(t, 'ipv6', { get: 'get_ipv6', set: 'set_ipv6', timeoutMs: 60_000 }),
   igmp: settings<{ enable: boolean; version: number }>(t, 'igmp'),
@@ -46,5 +124,13 @@ export const networkExtras = (t: Transport) => ({
       };
     },
     add: (macs: string[]) => t.call('mesh', 'add_nodes', { maclist: macs }, 180_000),
+    async nodes(): Promise<MeshMember[]> {
+      const r = await t.call<{ nodes?: RawMeshNode[]; topology?: RawMeshNode[] } | RawMeshNode[]>('mesh', 'get_topology', {}, 30_000);
+      const list = Array.isArray(r) ? r : (r.nodes ?? r.topology ?? []);
+      return list.map(toMember);
+    },
+    remove: (macs: string[]) => t.call('mesh', 'remove_nodes', { maclist: macs }, 120_000),
+    reboot: (macs: string[]) => t.call('mesh', 'reboot_nodes', { maclist: macs }, 60_000),
+    rename: (mac: string, name: string) => t.call('mesh', 'set_node_name', { mac, node_name: name }),
   },
 });
