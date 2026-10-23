@@ -80,6 +80,22 @@ return serve({
 			}
 		},
 
+		/** Allow or block whole networks reaching each other; cells is [{ src, dest, allow }]. */
+		access_apply: {
+			args: { cells: [] },
+			call: function(request) {
+				return fw.access_apply(request.args);
+			}
+		},
+		/** Whether devices can find each other across networks (avahi's mDNS reflector). */
+		mdns_status: { call: function() { return fw.mdns_status(); } },
+		mdns_set: {
+			args: { enabled: true, zones: [] },
+			call: function(request) {
+				return fw.mdns_set(request.args);
+			}
+		},
+
 		/** The console reached the router after a change: keep it. */
 		confirm: {
 			args: { token: 'token' },

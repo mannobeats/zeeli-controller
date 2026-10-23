@@ -95,6 +95,19 @@ export interface AgentNetwork {
   name: string;
   zone: string | null;
 }
+/** One cell of the access grid: whether `src` may start connections to `dest`. */
+export interface AccessCell {
+  src: string;
+  dest: string;
+  allow: boolean;
+}
+export interface MdnsStatus {
+  /** avahi-daemon (the reflector) is installed on the router. */
+  available: boolean;
+  enabled: boolean;
+  /** The zones whose devices can find each other. */
+  zones: string[];
+}
 export type ZoneChange = Partial<Pick<AgentZone, 'input' | 'output' | 'forward' | 'masquerade' | 'mssClamp' | 'networks'>>;
 export type RuleFields = Pick<
   AgentRule,
@@ -251,8 +264,10 @@ export const safety = (t: Transport) => {
       rules,
       /** The one-call read the page needs. */
       all: async () => {
-        const [z1, f, r, n] = await Promise.all([zones(), forwardings(), rules(), networks()]);
-        return { zones: z1, forwardings: f, rules: r, networks: n };
+        // an agent from before device discovery has no such call; treat it as not available
+        const mdns = z<MdnsStatus>('firewall', 'mdns_status').catch((): MdnsStatus => ({ available: false, enabled: false, zones: [] }));
+        const [z1, f, r, n, m] = await Promise.all([zones(), forwardings(), rules(), networks(), mdns]);
+        return { zones: z1, forwardings: f, rules: r, networks: n, mdns: m };
       },
       updateZone: (name: string, values: ZoneChange) => change('zone_update', { name, ...values }),
       addForwarding: (src: string, dest: string) => change('forwarding_add', { src, dest }),
@@ -261,8 +276,15 @@ export const safety = (t: Transport) => {
       updateRule: (r: AgentRule, fields: Partial<RuleFields>) => change('rule_update', { id: r.id, current: r.name, ...fields }),
       setRuleEnabled: (r: AgentRule, enabled: boolean) => change('rule_enable', { id: r.id, current: r.name, enabled }),
       removeRule: (r: AgentRule) => change('rule_delete', { id: r.id, current: r.name }),
+      /** Change many grid cells in one confirmed change. */
+      applyAccess: (cells: AccessCell[]) => change('access_apply', { cells }),
       /** Put a rule at `to` (0 is first) in the list `rules` returns. */
       moveRule: (r: AgentRule, to: number) => change('rule_move', { id: r.id, current: r.name, to }),
+    },
+
+    mdns: {
+      status: () => z<MdnsStatus>('firewall', 'mdns_status'),
+      set: (enabled: boolean, zones: string[]) => change('mdns_set', { enabled, zones }),
     },
 
     ports: {
