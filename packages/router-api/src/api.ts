@@ -14,6 +14,7 @@ import { system } from './domain/system.ts';
 import { traffic } from './domain/traffic.ts';
 import { vpn } from './domain/vpn.ts';
 import { wifi } from './domain/wifi.ts';
+import { wifiNetworks } from './domain/wifi-networks.ts';
 import type { Transport } from './transport/types.ts';
 
 /** Everything the interface can ask a router, grouped by area. */
@@ -28,6 +29,7 @@ export function createRouterApi(transport: Transport) {
     networks: networks(transport),
     internet: internet(transport),
     wifi: wifi(transport),
+    wifiNetworks: wifiNetworks(transport),
     networkExtras: networkExtras(transport),
     openwrt: ow,
     security: security(transport),

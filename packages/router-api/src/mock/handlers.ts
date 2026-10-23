@@ -1,5 +1,6 @@
 import { adguardHandlers } from './adguard-handlers.ts';
 import { agentSystem } from './agent-system.ts';
+import { agentWifi } from './agent-wifi.ts';
 import { appsHandlers } from './apps-handlers.ts';
 import { moreHandlers } from './more-handlers.ts';
 import type { MockState } from './seed.ts';
@@ -162,4 +163,5 @@ export const handlers: Record<string, Handler> = {
   ...clients,
   ...networks,
   ...agentSystem,
+  ...agentWifi,
 };

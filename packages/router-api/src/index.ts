@@ -14,6 +14,7 @@ export * from './domain/system.ts';
 export * from './domain/traffic.ts';
 export * from './domain/vpn.ts';
 export * from './domain/wifi.ts';
+export * from './domain/wifi-networks.ts';
 export { isRouterError, RouterError, type RouterErrorKind } from './errors.ts';
 export { createMockTransport } from './mock/transport.ts';
 export * from './net.ts';

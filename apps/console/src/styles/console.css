@@ -251,3 +251,13 @@ body:has(.bulk-bar) .toast { bottom: 80px; }
 .app-more .kicker { margin: 0; }
 
 .wake-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+
+/* ---------- own WiFi networks ---------- */
+.band-picks { display: grid; gap: 2px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.band-picks legend { padding: 0; margin-bottom: 6px; font-size: var(--t-12); color: var(--ink-3); font-weight: 500; }
+.band-pick { display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 8px; min-height: 32px; font-size: var(--t-13); }
+.band-pick .hint { color: var(--ink-3); font-size: var(--t-12); justify-self: end; }
+.band-pick:has(input:disabled) { color: var(--ink-3); }
+.group-toggle { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: inherit; cursor: pointer; }
+.group-toggle::after { content: " ›"; color: var(--ink-3); }
+.group-toggle[aria-expanded="true"]::after { content: " ⌄"; }
