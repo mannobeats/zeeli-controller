@@ -6,6 +6,11 @@
 export interface Transport {
   /** A firmware module call: `call('clients', 'get_list')`. */
   call<T = unknown>(module: string, fn: string, args?: object, timeoutMs?: number): Promise<T>;
+  /**
+   * A call to the Zeeli agent on the router: `zeeli('wifi', 'list')` reaches its `zeeli.wifi`
+   * object. Same session as `call`, no Advanced unlock. Fails with the agent's own message.
+   */
+  zeeli<T = unknown>(area: string, method: string, args?: object, timeoutMs?: number): Promise<T>;
   /** A raw ubus call, used for OpenWrt settings (UCI, network, file exec). */
   ubus<T = unknown>(object: string, method: string, args?: object, timeoutMs?: number): Promise<T>;
   /**

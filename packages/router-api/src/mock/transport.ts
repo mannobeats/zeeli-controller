@@ -60,6 +60,15 @@ export function createMockTransport(options: { latencyMs?: number; password?: st
       if (h) return h(state, args as Record<string, unknown>, { uptime: (Date.now() - started) / 1000 }) as T;
       return {} as T;
     },
+    async zeeli<T>(area: string, method: string, args: object = {}) {
+      await wait();
+      guard();
+      const h = handlers[`zeeli:${area}.${method}`];
+      if (!h) throw new RouterError('failed', `The Zeeli agent has no ${area}.${method}.`);
+      const r = h(state, args as Record<string, unknown>, { uptime: (Date.now() - started) / 1000 }) as { error?: string };
+      if (r && typeof r === 'object' && 'error' in r && r.error) throw new RouterError('failed', r.error);
+      return r as T;
+    },
     async ubus<T>(object: string, method: string, args: object = {}) {
       await wait();
       guard();

@@ -1,0 +1,148 @@
+
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option netmask '255.0.0.0'
+
+config globals 'globals'
+	option ula_prefix 'fd0b:9533:5d46::/48'
+
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	list ports 'eth1.1'
+	option macaddr '02:00:00:b5:78:ab'
+
+config device
+	option name 'eth1.1'
+	option macaddr '02:00:00:b5:78:ab'
+	option isolate '0'
+
+config interface 'lan'
+	option device 'br-lan'
+	option proto 'static'
+	option ipaddr '10.0.10.1'
+	option netmask '255.255.255.0'
+	option ip6assign '60'
+	option isolate '0'
+	option multicast_querier '0'
+	option igmp_snooping '0'
+	option display_name 'main'
+
+config device
+	option name 'eth0'
+	option macaddr '02:00:00:9c:50:ba'
+
+config interface 'wan'
+	option device 'eth0'
+	option proto 'dhcp'
+	option force_link '0'
+	option ipv6 '0'
+	option classlessroute '0'
+	option metric '10'
+
+config interface 'wan6'
+	option proto 'dhcpv6'
+	option device '@wan'
+	option disabled '1'
+
+config switch
+	option name 'switch0'
+	option reset '1'
+	option enable_vlan '0'
+
+config switch
+	option name 'switch1'
+	option reset '1'
+	option enable_vlan '1'
+
+config switch_vlan 'vlan_lan'
+	option device 'switch1'
+	option vlan '1'
+	option ports '4 5 6 7 3t'
+
+config interface 'guest'
+	option force_link '1'
+	option proto 'static'
+	option ipaddr '192.168.9.1'
+	option netmask '255.255.255.0'
+	option ip6assign '60'
+	option multicast_querier '1'
+	option igmp_snooping '0'
+	option isolate '0'
+	option disabled '0'
+	option device 'br-guest'
+	option display_name 'guest'
+	option vlan_id '9'
+
+config rule 'policy_relay_lo_rt_lan'
+	option lookup '16800'
+	option in 'loopback'
+	option priority '1'
+
+config interface 'tethering6'
+	option device '@tethering'
+	option proto 'dhcpv6'
+	option disabled '1'
+
+config interface 'wwan6'
+	option device '@wwan'
+	option proto 'dhcpv6'
+	option disabled '1'
+
+config interface 'secondwan'
+	option ipv6 '0'
+	option proto 'dhcp'
+	option metric '15'
+	option force_link '0'
+	option classlessroute '0'
+
+config interface 'secondwan6'
+	option proto 'dhcpv6'
+	option device '@secondwan'
+	option disabled '1'
+
+config interface 'iot'
+	option force_link '1'
+	option device 'br-iot'
+	option proto 'static'
+	option ipaddr '192.168.10.1'
+	option netmask '255.255.255.0'
+	option multicast_querier '1'
+	option igmp_snooping '0'
+	option isolate '0'
+	option disabled '1'
+	option display_name 'iot'
+	option vlan_id '10'
+	option delegate '0'
+
+config device
+	option name 'br-iot'
+	option type 'bridge'
+	option bridge_empty '1'
+	option macaddr '02:00:00:e5:3b:76'
+
+config interface 'modem_1_1_s1_6'
+	option proto 'dhcpv6'
+	option disabled '1'
+	option device '@modem_1_1_s1'
+
+config interface 'modem_2_1_s1_6'
+	option proto 'dhcpv6'
+	option disabled '1'
+	option device '@modem_2_1_s1'
+
+config device
+	option name 'br-guest'
+	option type 'bridge'
+	option bridge_empty '1'
+	option macaddr '02:00:00:ba:06:fb'
+
+config interface 'wwan'
+	option proto 'dhcp'
+	option classlessroute '0'
+	option metric '20'
+	option hostname '*'
+	option mtu '1500'
+

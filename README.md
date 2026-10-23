@@ -89,15 +89,16 @@ uclient-fetch -qO /tmp/zeeli-update https://github.com/mannobeats/zeeli-controll
 
 This downloads the latest release, checks its signature against the project's release key and installs it at `https://192.168.8.1/zeeli/`. GL.iNet's own panel, LuCI and SSH keep working beside it. Sign in with the router's admin password; the session is shared with the stock panel.
 
-It installs three things:
+It installs four things:
 - the console in `/www/zeeli`
 - the updater in `/usr/libexec/zeeli-update`
-- one permission file, [`tools/router/zeeli-controller.acl.json`](tools/router/zeeli-controller.acl.json). It lets the admin session see whether services are running and start or stop them, start a one-test iperf3 server, send Wake on LAN packets and install console releases. Nothing else.
+- the Zeeli agent: the router-side API the console uses where the stock firmware's own API is too limited. Its files are listed in `/usr/share/zeeli/manifest`; the source is in [`tools/router/agent`](tools/router/agent). The console reaches it through the firmware's own `/rpc` with the same admin session, so it needs no extra sign-in or permissions.
+- one permission file, [`tools/router/zeeli-controller.acl.json`](tools/router/zeeli-controller.acl.json). It lets the admin session see whether services are running and start or stop them, start a one-test iperf3 server, and send Wake on LAN packets. Nothing else.
 
 To remove everything:
 
 ```sh
-ssh root@192.168.8.1 'rm -rf /www/zeeli /usr/libexec/zeeli-update /usr/share/rpcd/acl.d/zeeli-controller.json && /etc/init.d/rpcd reload'
+ssh root@192.168.8.1 /usr/libexec/zeeli-update remove
 ```
 
 A firmware upgrade that doesn't keep settings removes these; install again afterwards.

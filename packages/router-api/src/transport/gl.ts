@@ -195,6 +195,8 @@ export function createGlTransport(base = ''): Transport {
   return {
     session,
     call: (module, fn, args = {}, timeoutMs) => rpc('call', [sid(), module, fn, args], timeoutMs),
+    // the agent's bridge in GL's /rpc forwards to ubus `zeeli.<area>`
+    zeeli: (area, method, args = {}, timeoutMs) => rpc('call', [sid(), 'zeeli', 'call', { area, method, args }], timeoutMs),
     ubus,
     execDirect,
     async adguard(path, init) {

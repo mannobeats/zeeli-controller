@@ -1,4 +1,5 @@
 import { activity } from './domain/activity.ts';
+import { agent } from './domain/agent.ts';
 import { apps } from './domain/apps.ts';
 import { clients } from './domain/clients.ts';
 import { device } from './domain/device.ts';
@@ -36,6 +37,7 @@ export function createRouterApi(transport: Transport) {
     traffic: traffic(transport),
     apps: apps(transport, ow),
     activity: activity(transport),
+    agent: agent(transport),
   };
 }
 

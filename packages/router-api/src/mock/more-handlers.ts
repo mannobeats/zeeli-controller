@@ -786,7 +786,6 @@ export const moreHandlers: Record<string, Handler> = {
         ].join('\n'),
       };
     if (a.command === '/usr/libexec/opkg-call') return { code: 0, stdout: opkgCall(s, params) };
-    if (a.command === '/usr/libexec/zeeli-update') return { code: 0, stdout: `Installed Zeeli Controller ${params[1]}` };
     return { code: 0, stdout: '' };
   },
   'ubus:luci-rpc.getDHCPLeases': (s, a) =>

@@ -53,3 +53,17 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  agent:
+    name: Router agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # the agent's ucode tests, in an OpenWrt 23.05 container
+      - name: Test
+        run: sh tools/router/agent/test/run.sh

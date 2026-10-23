@@ -6,6 +6,7 @@
 #   zeeli-update install latest      the newest release
 #   zeeli-update install v1.2.3      a given release
 #   zeeli-update apply <file>        an unsigned package from `pnpm deploy:router`, over SSH only
+#   zeeli-update remove              take the console, the agent and this updater off the router
 #
 # First install, from an SSH session on the router:
 #   uclient-fetch -qO /tmp/zeeli-update https://github.com/mannobeats/zeeli-controller/releases/latest/download/zeeli-update && sh /tmp/zeeli-update install latest
@@ -49,7 +50,38 @@ apply() {
     cp "$TMP/pkg/zeeli-controller.acl.json" "$ACL.new" && mv "$ACL.new" "$ACL"
     /etc/init.d/rpcd reload
   fi
+  [ ! -d "$TMP/pkg/root" ] || agent "$TMP/pkg/root"
   echo "Installed Zeeli Controller $(cat "$TMP/pkg/VERSION")"
+}
+
+# The agent: files laid out as they sit on the router. Copy what changed, remove what a
+# release dropped (from the last install's manifest), then restart what reads them.
+agent() {
+  MANIFEST=/usr/share/zeeli/manifest
+  NEW=$(cd "$1" && find . -type f | sed 's#^\.##' | sort)
+  CHANGED=
+  SERVICES=
+  for f in $(cat "$MANIFEST" 2>/dev/null); do
+    echo "$NEW" | grep -qx "$f" && continue
+    case "$f" in /etc/init.d/*) "$f" stop; "$f" disable ;; esac
+    rm -f "$f"
+    CHANGED=1
+  done
+  for f in $NEW; do
+    cmp -s "$1$f" "$f" && continue
+    mkdir -p "${f%/*}" && cp -p "$1$f" "$f.new" && mv "$f.new" "$f"
+    CHANGED=1
+  done
+  echo "$NEW" >"$MANIFEST"
+  # services start once every file they read is in place
+  if [ -n "$CHANGED" ]; then
+    for f in $NEW; do
+      case "$f" in /etc/init.d/*) "$f" enable; "$f" restart || echo "${f##*/} didn’t start" >&2 ;; esac
+    done
+  fi
+  # rpcd loads the agent's objects and nginx the bridge only when they start. Do it after
+  # this script has answered, since the console may be calling it through rpcd right now.
+  [ -z "$CHANGED" ] || (sleep 2; /etc/init.d/rpcd restart; /etc/init.d/nginx reload) </dev/null >/dev/null 2>&1 &
 }
 
 case "${1:-}" in
@@ -72,7 +104,17 @@ case "${1:-}" in
     [ -f "${2:-}" ] || fail "No package at ${2:-}"
     apply "$2"
     ;;
+  remove)
+    for f in $(cat /usr/share/zeeli/manifest 2>/dev/null); do
+      case "$f" in /etc/init.d/*) "$f" stop; "$f" disable ;; esac
+      rm -f "$f"
+    done
+    rm -rf "$DEST" /usr/share/zeeli /usr/share/ucode/zeeli "$ACL" "$SELF"
+    /etc/init.d/rpcd restart
+    /etc/init.d/nginx reload
+    echo "Removed Zeeli Controller. Its settings in /etc/config/zeeli are kept; delete that file too for a clean router."
+    ;;
   *)
-    fail "Usage: zeeli-update install <latest|v1.2.3>"
+    fail "Usage: zeeli-update install <latest|v1.2.3> | remove"
     ;;
 esac

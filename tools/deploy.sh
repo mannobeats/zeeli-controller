@@ -3,7 +3,7 @@
 # Usage: pnpm deploy:router [root@192.168.8.1]
 # Needs SSH key access to the router. The stock panel, LuCI and SSH are left untouched;
 # remove the console with:
-#   ssh <router> 'rm -rf /www/zeeli /usr/libexec/zeeli-update /usr/share/rpcd/acl.d/zeeli-controller.json && /etc/init.d/rpcd reload'
+#   ssh <router> /usr/libexec/zeeli-update remove
 set -eu
 
 TARGET="${1:-${ROUTER_SSH:-root@192.168.8.1}}"

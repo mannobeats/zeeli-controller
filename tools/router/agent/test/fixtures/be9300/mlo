@@ -1,0 +1,21 @@
+
+config mlo 'global'
+	option random_bssid '1'
+	list support_bands '2g'
+	list support_bands '5g'
+	list support_bands '6g'
+
+config wifi-mld 'mld0'
+	option disabled '0'
+	option mld_macaddr '02:00:00:1c:8a:6f'
+	list bands '2g'
+	list bands '5g'
+	list bands '6g'
+
+config wifi-mld 'mld1'
+	option disabled '0'
+	option mld_macaddr '02:00:00:9e:1e:e8'
+	list bands '2g'
+	list bands '5g'
+	list bands '6g'
+

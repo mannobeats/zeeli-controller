@@ -1,8 +1,4 @@
-import { RouterError } from '../errors.ts';
 import type { Transport } from '../transport/types.ts';
-
-/** The updater a console install puts on the router; it only takes `install <tag>` from the console. */
-export const CONSOLE_UPDATE_COMMAND = ['/usr/libexec/zeeli-update', 'install'] as const;
 
 export interface RouterInfo {
   model: string;
@@ -161,10 +157,4 @@ export const system = (t: Transport) => ({
 
   fan: () => t.call<{ speed: number; status: boolean }>('fan', 'get_status'),
   reboot: () => t.call('system', 'reboot', { delay: 1 }),
-  /** Have the router download a console release, check its signature and swap it in. */
-  async installConsole(tag: string) {
-    const [command, ...params] = CONSOLE_UPDATE_COMMAND;
-    const r = await t.ubus<{ code?: number; stderr?: string }>('file', 'exec', { command, params: [...params, tag] });
-    if (r.code) throw new RouterError('failed', (r.stderr ?? '').trim().split('\n').pop() || `The router couldn’t install ${tag}.`);
-  },
 });

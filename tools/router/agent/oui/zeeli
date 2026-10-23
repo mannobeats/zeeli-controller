@@ -1,0 +1,25 @@
+-- Zeeli Controller's door into the router's own /rpc API. The console calls
+-- `zeeli.call` with its normal admin session (GL's /rpc has already checked it), and
+-- this forwards to the agent's `zeeli.<area>` objects on ubus.
+local ubus = require "oui.ubus"
+
+local NAME = "^[a-z][a-z0-9_]*$"
+local M = {}
+
+function M.call(params)
+    local area, method = params.area, params.method
+    if type(area) ~= "string" or not area:match(NAME) or type(method) ~= "string" or not method:match(NAME) then
+        return { err_code = -1, err_msg = "Not a Zeeli call." }
+    end
+    local args = type(params.args) == "table" and params.args or {}
+    local res, err = ubus.call("zeeli." .. area, method, args, 60000)
+    if type(res) ~= "table" then
+        return { err_code = -1, err_msg = "The Zeeli agent didn’t answer (" .. tostring(err or "no reply") .. ")." }
+    end
+    if res.error then
+        return { err_code = -1, err_msg = tostring(res.error) }
+    end
+    return res
+end
+
+return M

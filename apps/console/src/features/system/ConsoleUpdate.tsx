@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { CONSOLE_UPDATE_COMMAND } from '@zeeli/router-api';
 import { useState } from 'react';
 import { api, isDemo } from '../../api/router.ts';
 import { navigate } from '../../app/useHashRoute.ts';
@@ -58,11 +57,9 @@ function InstallRelease({ release, notes }: { release: Release; notes: boolean }
   const { toast, confirm } = useFeedback();
   const [busy, setBusy] = useState(false);
   const { tag, changes } = release;
-  const allowed = useQuery({
-    queryKey: ['can-run', ...CONSOLE_UPDATE_COMMAND, tag],
-    queryFn: () => api.apps.canRun([...CONSOLE_UPDATE_COMMAND, tag]),
-    staleTime: 60_000,
-  }).data;
+  // a router installed before the agent existed can't update itself until it's installed once
+  const agent = useQuery({ queryKey: ['agent-version'], queryFn: api.agent.version, staleTime: 60_000 }).data;
+  const allowed = agent === undefined ? undefined : agent !== null;
 
   async function install() {
     if (
@@ -76,7 +73,7 @@ function InstallRelease({ release, notes }: { release: Release; notes: boolean }
       return;
     setBusy(true);
     try {
-      await api.system.installConsole(tag);
+      await api.agent.installConsole(tag);
       toast(`Installed ${tag.slice(1)}. Reloading…`);
       if (!isDemo) setTimeout(() => location.reload(), 1500);
     } catch (err) {

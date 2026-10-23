@@ -1,0 +1,144 @@
+
+config dnsmasq
+	option domainneeded '1'
+	option filterwin2k '0'
+	option localise_queries '1'
+	option rebind_protection '0'
+	option rebind_localhost '1'
+	option local '/lan/'
+	option domain 'example.ts.net'
+	option expandhosts '1'
+	option nonegcache '0'
+	option authoritative '1'
+	option readethers '1'
+	option leasefile '/tmp/dhcp.leases'
+	option resolvfile '/tmp/resolv.conf.d/resolv.conf.auto'
+	option nonwildcard '1'
+	option localservice '1'
+	option ednspacket_max '1232'
+	option filter_aaaa '1'
+	option filter_a '0'
+	option confdir '/tmp/dnsmasq.d'
+	option noresolv_old '1'
+	list server_old '1.1.1.1'
+	list server_old '1.0.0.1'
+	list server_old '2606:4700:4700::1111'
+	list server_old '2606:4700:4700::1001'
+	option noresolv '1'
+	list server '127.0.0.1#3053'
+	option localuse '0'
+
+config dhcp 'lan'
+	option interface 'lan'
+	option start '100'
+	option limit '150'
+	option leasetime '12h'
+	option dhcpv4 'server'
+	option dhcpv6 'disabled'
+	option ra 'disabled'
+	option ra_slaac '1'
+	option force '1'
+	option ignore '0'
+
+config dhcp 'wan'
+	option interface 'wan'
+	option ignore '1'
+
+config dhcp 'guest'
+	option interface 'guest'
+	option start '100'
+	option limit '150'
+	option leasetime '12h'
+	option dhcpv6 'disabled'
+	option ra 'disabled'
+	option force '1'
+
+config odhcpd 'odhcpd'
+	option maindhcp '0'
+	option leasefile '/tmp/hosts/odhcpd'
+	option leasetrigger '/usr/sbin/odhcpd-update'
+	option loglevel '4'
+
+config domain
+	option name 'console.gl-inet.com'
+	option ip '10.0.10.1'
+
+config domain
+	option name 'console.gl-inet.com'
+	option ip '::ffff:10.0.10.1'
+
+config dhcp 'secondwan'
+	option interface 'secondwan'
+	option ignore '1'
+
+config host
+	option mac '02:00:00:f6:e3:52'
+	option ip '10.0.10.10'
+	option tag 'Device 1'
+
+config host
+	option mac '02:00:00:ea:d8:12'
+	option ip '10.0.10.222'
+	option tag 'Device 2'
+
+config host
+	option mac '02:00:00:e7:9b:ed'
+	option ip '10.0.10.143'
+	option tag 'Device 3'
+
+config host
+	option mac '02:00:00:ae:78:bf'
+	option ip '192.168.9.241'
+	option tag 'Device 4'
+
+config host
+	option mac '02:00:00:4d:96:67'
+	option ip '10.0.10.80'
+	option tag 'Device 5'
+
+config dhcp 'iot'
+	option interface 'iot'
+	option start '100'
+	option limit '150'
+	option leasetime '12h'
+	option dhcpv6 'disabled'
+	option ra 'disabled'
+	option force '1'
+	option ndp 'disabled'
+
+config host
+	option mac '02:00:00:1d:46:a4'
+	option ip '10.0.10.168'
+	option network 'lan'
+	option tag 'Device 6'
+
+config host
+	option mac '02:00:00:ad:1d:4c'
+	option ip '10.0.10.117'
+	option network 'lan'
+	option tag 'Device 7'
+
+config host
+	option mac '02:00:00:8d:fa:41'
+	option ip '10.0.10.130'
+	option network 'lan'
+	option tag 'Device 8'
+
+config host
+	option mac '02:00:00:e7:0b:fe'
+	option ip '10.0.10.131'
+	option network 'lan'
+	option tag 'Device 9'
+
+config host
+	option mac '02:00:00:40:de:21'
+	option ip '10.0.10.140'
+	option network 'lan'
+	option tag 'Device 10'
+
+config host
+	option mac '02:00:00:1b:97:f8'
+	option ip '10.0.10.141'
+	option network 'lan'
+	option tag 'Device 11'
+

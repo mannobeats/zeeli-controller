@@ -1,10 +1,11 @@
 import { adguardHandlers } from './adguard-handlers.ts';
+import { agentSystem } from './agent-system.ts';
 import { appsHandlers } from './apps-handlers.ts';
 import { moreHandlers } from './more-handlers.ts';
 import type { MockState } from './seed.ts';
 
 type Args = Record<string, unknown>;
-type Handler = (state: MockState, args: Args, ctx: { uptime: number }) => unknown;
+export type Handler = (state: MockState, args: Args, ctx: { uptime: number }) => unknown;
 
 const jitter = (n: number) => Math.max(0, Math.round(n * (0.55 + Math.random() * 0.9)));
 const str = (v: unknown) => String(v ?? '');
@@ -160,4 +161,5 @@ export const handlers: Record<string, Handler> = {
   ...system,
   ...clients,
   ...networks,
+  ...agentSystem,
 };
