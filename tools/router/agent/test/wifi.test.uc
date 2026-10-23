@@ -139,6 +139,15 @@ t('refused: bad names, passwords, bands, security, networks', () => {
 	refuse({ options: { rrm: 'yes' } }, 'rrm must be on or off.');
 });
 
+t('any printable character is a valid password and is stored and read back as typed', () => {
+	// libuci quotes it, `append` and the heredoc that write hostapd.conf never evaluate it
+	const hostile = '$(id)`id`\\n&|/"\';#%1 ';
+	const r = made({ password: hostile });
+	eq(sections()[`zeeli_${r.id}_5g`].key, hostile);
+	eq(call('reveal', { id: r.id }).password, hostile);
+	ok(match(readfile(`${paths.confdir}/wireless`), /option key '\$\(id\)`id`\\n&\|\/"'\\'';#%1 '/), 'quoted for uci');
+});
+
 t('refused: a name another network on that radio already has', () => {
 	eq(call('create', { ...valid, ssid: 'Zeeli-5G' }).error, 'Another network on 5 GHz is already called “Zeeli-5G”.');
 	made({ ssid: 'Twice', bands: ['2g'] });
@@ -245,7 +254,7 @@ t('apply reloads WiFi once and clears the pending flag', () => {
 	made({ ssid: 'Pending' });
 	eq(call('list').pending, true);
 	eq(call('apply'), { applied: true });
-	eq(readfile(`${paths.state}/wifi-apply.log`), '/sbin/wifi reload\n');
+	eq(readfile(`${paths.state}/wifi-apply.log`), 'timeout 25 /sbin/wifi reload\n');
 	eq(call('list').pending, false);
 });
 

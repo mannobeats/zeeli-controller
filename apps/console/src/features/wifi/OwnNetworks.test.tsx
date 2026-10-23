@@ -102,6 +102,8 @@ test('choosing 6 GHz switches to WPA3 and leaves no other choice', async () => {
   const s = await sheet();
   const security = () => s.getByLabelText(/^Security/) as HTMLSelectElement;
   expect([...security().options].map((o) => o.value)).toEqual(['sae-mixed', 'sae', 'psk2']);
+  expect([...security().options].map((o) => o.text)).toEqual(['WPA2/WPA3', 'WPA3', 'WPA2']);
+  expect(s.getByText('WPA2/WPA3 works with older devices too.')).toBeTruthy();
   await user.click(s.getByRole('checkbox', { name: /^6 GHz/ }));
   expect([...security().options].map((o) => o.value)).toEqual(['sae']);
   expect(security().value).toBe('sae');
@@ -195,4 +197,23 @@ test('a router without the agent gets a note, not a broken page', async () => {
   expect(screen.getByRole('button', { name: 'Go to updates' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Add network' })).toBeNull();
   expect(screen.queryByRole('table', { name: 'Custom networks' })).toBeNull();
+});
+
+test('counts the online devices on each network by band and subnet', async () => {
+  const everywhere = await api.wifiNetworks.create({
+    ...base,
+    ssid: 'Everyone',
+    bands: ['2g', '5g', '6g'],
+    security: 'sae',
+    network: 'main',
+  });
+  const want = (await api.clients.list()).filter(
+    (c) => c.online && c.link.medium === 'wifi' && ['2.4', '5', '6'].includes(c.link.band ?? '') && c.ip.startsWith('192.168.8.'),
+  ).length;
+  expect(want).toBeGreaterThan(0);
+  await renderPage(<WifiPage />);
+  const row = within(await rowOf('Everyone'));
+  await waitFor(() => expect(row.getByText(String(want), { selector: '.num' })).toBeTruthy());
+  expect(within(await rowOf('Kids')).getByText('0', { selector: '.num' })).toBeTruthy();
+  await api.wifiNetworks.setEnabled(everywhere.id, false);
 });

@@ -11,6 +11,8 @@ interface Props {
   rows: OwnWifi[];
   /** The networks page's names for networks, by id. */
   labels: Record<string, string>;
+  /** Online devices on a network. */
+  clientsOn: (n: OwnWifi) => number;
   busy: boolean;
   onOpen: (n: OwnWifi) => void;
   onSwitch: (list: OwnWifi[], on: boolean) => void;
@@ -18,7 +20,7 @@ interface Props {
 }
 
 /** The networks made here, with the same row and bulk-bar patterns as the router’s own groups. */
-export function OwnTable({ rows, labels, busy, onOpen, onSwitch, onDelete }: Props) {
+export function OwnTable({ rows, labels, clientsOn, busy, onOpen, onSwitch, onDelete }: Props) {
   return (
     <DataTable
       label="Custom networks"
@@ -61,6 +63,13 @@ export function OwnTable({ rows, labels, busy, onOpen, onSwitch, onDelete }: Pro
         { key: 'net', header: 'Network', size: 'md', cell: (n) => labels[n.network] ?? n.network },
         { key: 'sec', header: 'Security', size: 'md', cell: (n) => SECURITY[n.security] ?? n.security },
         { key: 'sched', header: 'Schedule', size: 'lg', cell: (n) => scheduleText(n) || <span className="muted">—</span> },
+        {
+          key: 'clients',
+          header: 'Clients',
+          align: 'end',
+          size: 'sm',
+          cell: (n) => <span className="num">{n.disabled ? '—' : clientsOn(n)}</span>,
+        },
         {
           key: 'on',
           header: 'On',
