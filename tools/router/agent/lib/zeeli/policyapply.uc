@@ -13,7 +13,7 @@
 'use strict';
 
 import { mkdir, readfile, rename, rmdir, stat, unlink, writefile } from 'fs';
-import { fail, paths, run, services } from 'zeeli.common';
+import { fail, paths, run } from 'zeeli.common';
 import * as nft from 'zeeli.nftpolicy';
 import * as store from 'zeeli.store';
 
@@ -22,6 +22,10 @@ const APPLIED_SECTION = 'zeeli_applied';
 const TICK_SECONDS = 30;
 /** After the firewall fails to take a file, wait this long before trying the same file again. */
 const RETRY_SECONDS = 600;
+/** How long a domain's addresses are trusted before they are looked up again, and the most looked up at once. */
+const POKE_REFRESH = 600;
+const POKE_MAX = 24;
+const POKE_BUDGET_SECONDS = 20;
 /** gl_eqos takes KiB/s; people think in Mbps. */
 const KIB_PER_MBPS = 1e6 / 8 / 1024;
 
@@ -61,6 +65,20 @@ function parseZoneDevices(text) {
 	return devs;
 }
 
+const includePath = () => (sandboxed() ? `${paths.state}/include/policies.nft` : '/etc/zeeli/policies.nft');
+
+/**
+ * What a command answers in the test sandbox unless a test says otherwise: it works, and the
+ * live ruleset holds whatever file is on disk, as if fw4 had loaded it.
+ */
+function sandboxAnswer(argv) {
+	if (argv[0] == 'nft' && argv[1] == 'list' && argv[5] == 'zeeli_rev') {
+		const rev = nft.revisionIn(readfile(includePath()));
+		return rev ? { code: 0, stdout: `chain zeeli_rev {\n\t\tcounter comment "zeeli-rev:${rev}"\n\t}\n` } : { code: 1, stdout: 'No such file or directory' };
+	}
+	return { code: 0, stdout: '' };
+}
+
 /**
  * Everything the agent does to the outside world goes through here, so tests can see it and
  * answer for it. In the test sandbox nothing runs: calls are recorded in `sys.calls`.
@@ -68,16 +86,22 @@ function parseZoneDevices(text) {
 const sys = {
 	calls: [],
 	/** Test hook: what a recorded command answers. */
-	answer: (argv) => ({ code: 0, stdout: '' }),
+	answer: sandboxAnswer,
 	run: function(argv) {
 		if (!sandboxed()) return run(argv);
 		push(this.calls, argv);
 		return this.answer(argv);
 	},
+	/** Reload a service and return its exit code. */
 	reload: function(name) {
-		if (sandboxed()) push(this.calls, ['reload', name]);
-		services.reload(name);
+		if (!match(name, /^[a-z0-9_-]+$/)) return 1;
+		if (sandboxed()) {
+			push(this.calls, ['reload', name]);
+			return this.answer(['reload', name]).code;
+		}
+		return run([`/etc/init.d/${name}`, 'reload']).code;
 	},
+	lockTries: 300,
 	now: () => time(),
 	/** The router's wall clock; ucode's localtime knows the time zone and daylight saving. Tests use gmtime. */
 	breakdown: localtime,
@@ -94,7 +118,6 @@ const sys = {
 
 /* ---------- files ---------- */
 
-const includePath = () => (sandboxed() ? `${paths.state}/include/policies.nft` : '/etc/zeeli/policies.nft');
 const statePath = () => `${paths.state}/policies.json`;
 
 function ensureDir(path) {
@@ -119,30 +142,42 @@ function saveState(state) {
 	if (readfile(statePath()) != text) writeAtomic(statePath(), text);
 }
 
+const ownPid = () => match(readfile('/proc/self/stat') ?? '', /^([0-9]+) /)?.[1] ?? '0';
+
 /**
- * Only one reconcile at a time: the console's writes and the 30-second tick share a lock.
- * ucode has no flock, so the lock is a directory (mkdir is atomic); one older than a minute
- * belongs to something that died.
+ * Only one reconcile at a time: the console's writes and the 30-second tick share a lock. ucode
+ * has no flock, so the lock is a directory (mkdir is atomic) holding its owner's pid; a lock whose
+ * owner is gone is taken over at once, and one whose owner is alive is never broken, however long
+ * it is held. Nothing slow runs while it is held, so waiting is short.
  */
 function locked(fn) {
-	const dir = `${paths.state}/policies.lock`;
+	const dir = `${paths.state}/policies.lock`, pid = `${dir}/pid`;
 	ensureDir(dir);
 	let held = false;
-	for (let tries = 0; tries < 100 && !held; tries++) {
-		held = mkdir(dir);
-		if (held) break;
-		const age = time() - (stat(dir)?.mtime ?? time());
-		if (age > 60) rmdir(dir);
-		else sleep(100);
+	for (let tries = 0; tries < sys.lockTries && !held; tries++) {
+		if (mkdir(dir)) {
+			writefile(pid, ownPid());
+			held = true;
+			break;
+		}
+		const owner = trim(readfile(pid) ?? '');
+		// no pid yet: its owner is between mkdir and writing it, so give it a few seconds
+		const gone = owner == '' ? time() - (stat(dir)?.mtime ?? 0) > 5 : !stat(`/proc/${owner}`);
+		if (gone) {
+			unlink(pid);
+			rmdir(dir);
+		} else sleep(100);
 	}
 	if (!held) return fail('The router is busy applying another change. Try again in a moment.');
 	let result;
 	try {
 		result = fn();
 	} catch (e) {
+		unlink(pid);
 		rmdir(dir);
 		die(e.message);
 	}
+	unlink(pid);
 	rmdir(dir);
 	return result;
 }
@@ -200,17 +235,42 @@ function refused(text) {
 	return r.code == 0 ? null : firstLine(r.stdout) || 'it gave no reason';
 }
 
-const isLoaded = () => sys.run(['nft', 'list', 'chain', 'inet', 'fw4', 'zeeli_forward']).code == 0;
+/** The revision of the file fw4 actually loaded, read back from the live ruleset (null if our chains aren't there). */
+const liveRevision = () => nft.revisionIn(sys.run(['nft', 'list', 'chain', 'inet', 'fw4', 'zeeli_rev']).stdout);
 
 /**
- * Make the firewall match `text`. Returns 'none', 'live' or 'reload', or { error }.
- * If a reload leaves our chain out of the firewall, the previous file goes back, and the same
- * file isn't tried again for ten minutes, so a file that can't load never becomes a reload loop.
+ * fw4 reloads flush its table but keep chains and sets the new file no longer declares, so a
+ * policy that went leaves an empty chain and its sets behind. Delete what we own and don't use.
+ */
+function removeOrphans(result) {
+	const own = nft.ownedNames(result);
+	const chains = [], sets = [];
+	for (let line in split(sys.run(['nft', '-t', 'list', 'table', 'inet', 'fw4']).stdout, '\n')) {
+		const chain = match(line, /^\tchain (zeeli_[a-z0-9_]+) \{/), set = match(line, /^\tset (zeeli_[a-z0-9_]+) \{/);
+		if (chain && index(own.chains, chain[1]) < 0) push(chains, chain[1]);
+		if (set && index(own.sets, set[1]) < 0) push(sets, set[1]);
+	}
+	if (!length(chains) && !length(sets)) return;
+	const file = `${paths.state}/policies.orphans.nft`;
+	writeAtomic(file, join('', [...map(chains, (n) => `delete chain inet fw4 ${n}\n`), ...map(sets, (n) => `delete set inet fw4 ${n}\n`)]));
+	sys.run(['nft', '-f', file]);
+	unlink(file);
+}
+
+/** Reload the firewall and say whether it came back with `rev` loaded. */
+const reloadedWith = (rev) => (sys.reload('firewall') ?? 0) == 0 && liveRevision() == rev;
+
+/**
+ * Make the firewall match `text`. Returns 'none', 'live' or 'reload', or { error }. Success is
+ * read back from the live ruleset (the file's revision), not assumed from an exit code. If a
+ * reload doesn't bring the new file up, the previous file goes back, and the same file isn't
+ * tried again for ten minutes, so a file that can't load never becomes a reload loop.
  */
 function applyFirewall(c, result, text, state) {
 	const path = includePath();
 	const old = readfile(path);
-	const loaded = old != null && isLoaded();
+	const rev = nft.revisionIn(text);
+	const loaded = old != null && liveRevision() == nft.revisionIn(old);
 	if (text == old && (loaded || !length(result.chains))) return 'none';
 	if (old == null && !length(result.chains)) return 'none';
 	if (state.failed?.text == text && sys.now() - state.failed.at < RETRY_SECONDS)
@@ -227,12 +287,14 @@ function applyFirewall(c, result, text, state) {
 		writeAtomic(file, nft.liveCommands(result));
 		const r = sys.run(['nft', '-f', file]);
 		unlink(file);
-		if (r.code == 0) return 'live';
+		if (r.code == 0 && liveRevision() == rev) return 'live';
 	}
-	sys.reload('firewall');
-	if (isLoaded()) return 'reload';
+	if (reloadedWith(rev)) {
+		removeOrphans(result);
+		return 'reload';
+	}
 
-	// the reload didn't bring our chain up: put back what worked, so a bad file can't leave the firewall without it
+	// the reload didn't bring the new file up: put back what worked, so a bad file can't leave the firewall without it
 	state.failed = { text, at: sys.now() };
 	if (old != null) writeAtomic(path, old);
 	else unlink(path);
@@ -277,19 +339,47 @@ function syncSites(c, result) {
 }
 
 /**
- * dnsmasq fills the sets whenever it answers a lookup of one of the domains, including from
- * its cache. With AdGuard Home in front, devices never ask dnsmasq, so the agent asks on their
- * behalf; the answers pass through dnsmasq either way.
+ * The domains to look up now: those of policies that apply and haven't been looked up in ten
+ * minutes (or since the firewall was reloaded, which empties the sets). At most 24 at a time; the
+ * rest stay due for the next pass. Marks them looked up, so it is called inside the lock and the
+ * lookups themselves (`pokeSites`) run after it is released.
  */
-function pokeSites(result) {
-	for (let id in keys(result.sites))
-		if (index(result.active, id) >= 0)
-			for (let d in result.sites[id]) sys.run(['nslookup', d, '127.0.0.1']);
+function dueLookups(result, state, reloaded) {
+	const t = sys.now();
+	const seen = reloaded ? {} : (state.poked ?? {});
+	const next = {}, due = [];
+	for (let id in sort(keys(result.sites))) {
+		if (index(result.active, id) < 0) continue;
+		for (let d in result.sites[id]) {
+			const key = `${id}:${d}`;
+			if (seen[key] != null && t - seen[key] < POKE_REFRESH) next[key] = seen[key];
+			else if (length(due) < POKE_MAX) {
+				push(due, d);
+				next[key] = t;
+			}
+		}
+	}
+	state.poked = next;
+	return due;
+}
+
+/**
+ * Look the domains up through dnsmasq so the sets hold their addresses before the covered
+ * devices next ask. Each lookup is limited to 3 seconds and the lot to 20, and it runs outside
+ * the lock, so slow DNS can't hold up a change or let two applies overlap.
+ */
+function pokeSites(domains) {
+	const start = sys.now();
+	for (let d in domains) {
+		if (sys.now() - start > POKE_BUDGET_SECONDS) break;
+		sys.run(['timeout', '3', 'nslookup', d, '127.0.0.1']);
+	}
 }
 
 /* ---------- speed limits, through gl_eqos ---------- */
 
-// gl_eqos is given upper-case MACs, as the console gives them to the firmware's own limit call
+// gl_eqos is given upper-case MACs, as the console gives them to the firmware's own limit call. A
+// direction given as 0 gets no class at all in gl_eqos (`[ $dl -gt 0 ]`), so 0 means "no limit" there.
 const kib = (mbps) => (mbps > 0 ? max(1, int(mbps * KIB_PER_MBPS + 0.5)) : 0);
 
 function readApplied(c) {
@@ -337,7 +427,12 @@ function syncLimits(c, result) {
 			continue;
 		}
 		// gl_eqos adds classes to a base queue it only builds when QoS starts
-		if (!length(trim(sys.run(['tc', 'class', 'show', 'dev', 'br-lan']).stdout))) sys.run(['/usr/bin/gl_eqos', 'start', '312500', '312500']);
+		if (!length(trim(sys.run(['tc', 'class', 'show', 'dev', 'br-lan']).stdout))) {
+			// this is what the firmware does for any per-device limit: it caps each bridge at 2.5 Gbit, sends every
+			// packet through an ifb queue, and restarts bridger once. Say so, since it can lower top speed.
+			sys.run(['/usr/bin/gl_eqos', 'start', '312500', '312500']);
+			push(warnings, 'Speed limits turned on the router’s traffic shaping, which sends all traffic through a software queue and can lower top speed on very fast links.');
+		}
 		sys.run(['/usr/bin/gl_eqos', 'add', uc(mac), `${want[mac].down}`, `${want[mac].up}`]);
 		have[mac] = want[mac];
 		touched = true;
@@ -381,15 +476,15 @@ function reconcile(c) {
 	}
 	delete state.failed;
 	syncSites(c, result);
+	const due = dueLookups(result, state, applied == 'reload');
 	const warnings = [...result.warnings, ...syncLimits(c, result)];
 
 	const fresh = filter(result.blocked, (mac) => index(state.blocked, mac) < 0);
 	if (length(fresh)) endConnections(fresh);
 	state.blocked = result.blocked;
 	saveState(state);
-	pokeSites(result);
 
-	return { applied, warnings, limits: result.limits, blocked: result.blocked, active: result.active };
+	return { applied, warnings, limits: result.limits, blocked: result.blocked, active: result.active, due };
 }
 
 /**
@@ -398,7 +493,8 @@ function reconcile(c) {
  * `applied` and `warnings`, or { error }.
  */
 function mutate(change) {
-	return locked(() => {
+	let due = [];
+	const out = locked(() => {
 		const c = store.open();
 		const done = change(c);
 		if (done?.error) {
@@ -413,8 +509,11 @@ function mutate(change) {
 			return r;
 		}
 		store.commit(c);
+		due = r.due;
 		return { ...done, applied: r.applied, warnings: r.warnings };
 	});
+	pokeSites(due);
+	return out;
 }
 
 /** Remove policies whose time has passed. Returns how many went. */
@@ -435,14 +534,21 @@ function dropExpired(c) {
  * and reloads it.
  */
 function tick() {
-	return locked(() => {
+	let due = [];
+	const r = locked(() => {
 		const c = store.open();
 		let r = reconcile(c);
-		if (!r.error && dropExpired(c)) r = reconcile(c);
+		due = r.due ?? [];
+		if (!r.error && dropExpired(c)) {
+			r = reconcile(c);
+			due = [...due, ...(r.due ?? [])];
+		}
 		if (r.error) c.revert('zeeli');
 		else store.commit(c);
 		return r;
 	});
+	pokeSites(due);
+	return r;
 }
 
 /** The loop the `zeeli-policies` service runs. */
@@ -470,7 +576,7 @@ function status(c) {
 		included: c.get('firewall', INCLUDE_SECTION) == 'include',
 		file: old != null,
 		inSync: old == nft.render(result),
-		loaded: old != null ? isLoaded() : false,
+		loaded: old != null && liveRevision() == nft.revisionIn(old),
 		active: result.active,
 		limits: result.limits,
 		appliedLimits: map(keys(readApplied(c)), (m) => uc(m)),
@@ -480,4 +586,4 @@ function status(c) {
 }
 
 // this ucode needs exports listed rather than marked inline
-export { sys, reconcile, mutate, tick, serve, status, includePath, parseNeighbours, parseZoneDevices };
+export { sys, reconcile, mutate, tick, serve, status, includePath, parseNeighbours, parseZoneDevices, sandboxAnswer };

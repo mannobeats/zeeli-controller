@@ -57,7 +57,7 @@ function show(p, active) {
 }
 
 /** Who a policy applies to; every entry has to exist. Returns { who } or { error }. */
-function checkWho(raw, groups, zones) {
+function checkWho(raw, groups, zones, uplinks) {
 	if (type(raw) != 'array' || !length(raw)) return fail('Choose who the policy is for.');
 	if (length(raw) > store.LIMITS.who) return fail(`A policy can name up to ${store.LIMITS.who} devices, groups or networks.`);
 	const who = [];
@@ -71,6 +71,7 @@ function checkWho(raw, groups, zones) {
 			if (!length(filter(groups, (g) => g.id == id))) return fail('One of the groups in this policy doesn’t exist.');
 		} else if (w.type == 'network') {
 			if (index(zones, id) < 0) return fail(`The firewall has no network called ${id}.`);
+			if (index(uplinks, id) >= 0) return fail(`“${id}” is an uplink, not a network of your own, so a policy for it would cut off everyone behind it.`);
 		} else {
 			return fail(`“${w.type}” isn’t something a policy can be for.`);
 		}
@@ -141,7 +142,7 @@ function build(c, args, base) {
 
 	const nameError = store.checkName(raw('name', base.name), 'policy');
 	if (nameError) return fail(nameError);
-	const who = checkWho(raw('who', base.who), groups, zones);
+	const who = checkWho(raw('who', base.who), groups, zones, store.uplinkZones(c));
 	if (who.error) return who;
 	const what = checkWhat(raw('what', base.what), zones);
 	if (what.error) return what;

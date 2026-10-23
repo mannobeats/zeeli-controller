@@ -17,4 +17,8 @@ table inet zeeli_check {
 		type filter hook forward priority -1; policy accept;
 		jump zeeli_p_000001
 	}
+
+	chain zeeli_rev {
+		counter comment "zeeli-rev:9229ce24"
+	}
 }

@@ -2,7 +2,7 @@
 'use strict';
 
 import { eq, ok, test, done } from 'assert';
-import { mac, ran, reset, sections, uci } from 'sandbox';
+import { mac, normal, ran, reset, sections, uci } from 'sandbox';
 import * as groups from 'zeeli.groups';
 import * as policies from 'zeeli.policies';
 import { sys } from 'zeeli.policyapply';
@@ -151,7 +151,7 @@ test('a firewall that refuses the file leaves the group as it was', () => {
 	reset();
 	const g = made({ name: 'Kids', kind: 'person', members: [MAYA] });
 	policies.create({ name: 'Bedtime', who: [{ type: 'group', id: g.id }], what: { kind: 'internet' }, when: { kind: 'always' }, action: { kind: 'block' } });
-	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == '-c' ? { code: 1, stdout: 'Error: nope\nsecond line' } : { code: 0, stdout: '' });
+	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == '-c' ? { code: 1, stdout: 'Error: nope\nsecond line' } : normal(argv));
 	const r = groups.setMembers({ id: g.id, macs: [LEO] }, true);
 	ok(match(r.error, /^The firewall wouldn’t take these policies \(Error: nope\), so nothing was changed\.$/), r.error);
 	eq(groups.list().groups[0].members, [MAYA]);

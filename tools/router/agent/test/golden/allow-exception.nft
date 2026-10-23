@@ -18,16 +18,20 @@ table inet zeeli_check {
 	}
 
 	chain zeeli_p_000004 {
-		ether saddr @zeeli_c_000004 oifname { "eth0", "sta1" } counter accept
+		ether saddr @zeeli_c_000004 oifname { "eth0", "sta1" } ct direction original counter accept
 	}
 
 	chain zeeli_p_000001 {
-		ether saddr @zeeli_g_a1b2c3 oifname { "eth0", "sta1" } counter drop
+		ether saddr @zeeli_g_a1b2c3 oifname { "eth0", "sta1" } ct direction original counter drop
 	}
 
 	chain zeeli_forward {
 		type filter hook forward priority -1; policy accept;
 		jump zeeli_p_000004
 		jump zeeli_p_000001
+	}
+
+	chain zeeli_rev {
+		counter comment "zeeli-rev:d0c9b66b"
 	}
 }
