@@ -75,7 +75,7 @@ const FIRMWARE: WifiEntry[] = [
   fw('wifi6g', 'main', 'Zeeli Home 6', '6g', 'main', { security: 'sae' }),
   fw('guest2g', 'guest', 'Zeeli Guest', '2g', 'guest', { disabled: true }),
   fw('guest5g', 'guest', 'Zeeli Guest', '5g', 'guest'),
-  fw('iot2g', 'iot', 'Zeeli Things', '2g', 'iot', { security: 'psk2' }),
+  fw('iot2g', 'iot', 'Zeeli Things', '2g', 'iot', { security: 'none', hasKey: false }),
 ];
 /** The MLO links and the mesh backhaul take slots too. */
 const HIDDEN_SLOTS: Record<OwnBand, number> = { '2g': 2, '5g': 3, '6g': 2 };

@@ -11,6 +11,7 @@ import { DataTable } from '../../ui/DataTable.tsx';
 import { DeviceIcon, Swatch } from '../../ui/DeviceIcon.tsx';
 import { Grid, KeyValues, Meter, Panel } from '../../ui/Layout.tsx';
 import { Sparkline } from '../../ui/Sparkline.tsx';
+import { CheckupHint } from '../checkup/CheckupHint.tsx';
 import { TrafficPath, VerticalPath } from './TrafficPath.tsx';
 
 export interface Uplinks {
@@ -61,6 +62,7 @@ export default function DashboardPage() {
           </div>
         </div>
       </Panel>
+      <CheckupHint />
 
       <Panel
         title="Traffic path"

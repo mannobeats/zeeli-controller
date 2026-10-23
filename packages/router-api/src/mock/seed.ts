@@ -112,6 +112,7 @@ export const seed = () => ({
   binds: [
     { mac: '02:5E:E1:17:0A:C7', ip: '192.168.8.10', name: 'nas-01', display_name: 'main' },
     { mac: '02:5E:E1:1E:0B:C6', ip: '192.168.8.11', name: 'homelab-proxmox', display_name: 'main' },
+    { mac: '02:5E:E1:21:3C:90', ip: '192.168.9.40', name: 'printer', display_name: 'main' },
   ],
 });
 
