@@ -5,7 +5,7 @@
 // sends it SIGHUP.
 'use strict';
 
-import { readfile, unlink, writefile } from 'fs';
+import { chmod, readfile, unlink, writefile } from 'fs';
 import { fail, paths, services, valid } from 'zeeli.common';
 import * as store from 'zeeli.store';
 
@@ -92,9 +92,12 @@ function apply(c, s, ips) {
 	const text = s.enabled ? render(s.devices, ips, zone(c)) : '';
 	const file = hostsFile();
 	if ((readfile(file) ?? '') == text) return false;
-	if (length(text)) writefile(file, text);
-	else unlink(file);
-	services.reload('dnsmasq');
+	if (length(text)) {
+		writefile(file, text);
+		// rpcd writes owner-only files; dnsmasq reads as its own user
+		chmod(file, 0o644);
+	} else unlink(file);
+	services.hup('dnsmasq');
 	return true;
 }
 

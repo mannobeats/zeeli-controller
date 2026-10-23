@@ -2,7 +2,7 @@
 'use strict';
 
 import { eq, ok, test, plugin, done } from 'assert';
-import { readfile, unlink } from 'fs';
+import { readfile, stat, unlink } from 'fs';
 import { paths } from 'zeeli.common';
 import { reset } from 'sandbox';
 import * as names from 'zeeli.names';
@@ -47,6 +47,8 @@ test('sync stores the names and writes the hosts file', () => {
 	const r = api.sync.call({ args: { devices: [{ mac: A, name: ' NAS 01 ', ip: '10.0.10.20' }, { mac: B, name: 'NAS 01', ip: '10.0.10.21' }, { mac: C, name: 'No address' }] } });
 	eq(r.devices, [{ mac: A, name: 'NAS 01', host: 'nas-01' }, { mac: B, name: 'NAS 01', host: 'nas-01-2' }, { mac: C, name: 'No address', host: 'no-address' }]);
 	eq(hosts(), '# Zeeli: device names\n10.0.10.20 nas-01.lan\n10.0.10.21 nas-01-2.lan\n');
+	// dnsmasq reads it as its own user, so it must not be owner-only
+	eq(stat(`${paths.state}/hosts-zeeli`).perm.other_read, true);
 	eq(api.list.call({ args: {} }).devices[0].name, 'NAS 01');
 });
 

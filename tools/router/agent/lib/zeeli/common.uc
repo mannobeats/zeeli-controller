@@ -47,6 +47,13 @@ const services = {
 		if (paths.confdir) return;
 		run([`/etc/init.d/${name}`, 'reload']);
 	},
+	/** Make a running daemon re-read its files. dnsmasq's init script only restarts on config
+	 * changes, so a new hosts file needs the signal itself. */
+	hup: function(name) {
+		if (!match(name, /^[a-z0-9_-]+$/)) return;
+		if (paths.confdir) return;
+		run(['killall', '-HUP', name]);
+	},
 };
 
 /** The agent's version, from the package it was installed from. */
