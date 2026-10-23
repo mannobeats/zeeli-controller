@@ -6,11 +6,11 @@ import { PortsPage } from './pages.tsx';
 
 afterEach(() => vi.restoreAllMocks());
 
-const details = async () => within(await screen.findByRole('table', { name: 'Port details' }));
+const details = async () => within(await screen.findByRole('table', { name: 'Ethernet ports' }));
 const profiles = async () => within(await screen.findByRole('table', { name: 'Port profiles' }));
 const portNamed = async (name: string) => (await api.internet.ports()).find((p) => p.name === name);
 
-test('each port shows its link, speed, role and networks', async () => {
+test('the ports table shows each port’s link, speed, role and networks', async () => {
   await renderPage(<PortsPage />);
   const t = await details();
   const lan1 = (await t.findByText('LAN1', { selector: '.name' })).closest('tr') as HTMLElement;
@@ -18,6 +18,7 @@ test('each port shows its link, speed, role and networks', async () => {
   expect(within(lan1).getByText('1 Gb/s')).toBeTruthy();
   expect(within(lan1).getByText(/full duplex/)).toBeTruthy();
   expect(within(lan1).getByText('LAN')).toBeTruthy();
+  expect(within(lan1).getByText('—')).toBeTruthy();
   expect(within(lan1).getByText('Main LAN')).toBeTruthy();
   const lan2 = t.getByText('LAN2', { selector: '.name' }).closest('tr') as HTMLElement;
   expect(within(lan2).getByText('No cable')).toBeTruthy();
@@ -112,6 +113,8 @@ test('without the agent the page is the one it always was', async () => {
   vi.spyOn(api.agent, 'version').mockResolvedValue(null);
   await renderPage(<PortsPage />);
   expect(await screen.findByRole('table', { name: 'Ethernet ports' })).toBeTruthy();
+  expect(screen.queryByRole('columnheader', { name: 'Link' })).toBeNull();
+  expect(screen.queryByRole('columnheader', { name: 'Devices' })).toBeNull();
   expect(screen.queryByRole('table', { name: 'Port details' })).toBeNull();
   expect(screen.queryByText('Port profiles')).toBeNull();
 });

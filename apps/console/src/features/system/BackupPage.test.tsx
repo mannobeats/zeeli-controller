@@ -27,7 +27,8 @@ test('snapshots list when, why and how big, newest first', async () => {
   expect(within(rows[1] as HTMLElement).getByText('Before adding a firewall rule')).toBeTruthy();
   expect(within(rows[1] as HTMLElement).getByText('3 h ago')).toBeTruthy();
   expect(within(rows[1] as HTMLElement).getByText('458 KB')).toBeTruthy();
-  expect(screen.getByText('3 of 10 kept')).toBeTruthy();
+  expect(screen.getByText('2 of 10 kept, 1 automatic (the newest 10 are kept)')).toBeTruthy();
+  expect(within(rows[1] as HTMLElement).getByText('Automatic')).toBeTruthy();
 });
 
 test('taking a snapshot needs a reason', async () => {
@@ -70,7 +71,7 @@ test('restoring says what it writes back and what it does about the router', asy
   await expectToast(/^Restored firewall\. Reloaded firewall so the change is live now\./);
   expect((await api.safety.firewall.rules()).some((r) => r.name === 'Block guests from the printer')).toBe(false);
   expect(screen.queryByText('Restart the router to finish')).toBeNull();
-  expect((await list())[0]?.reason).toMatch(/^Before restoring the snapshot from/);
+  expect((await list())[0]).toMatchObject({ reason: 'Before restoring a snapshot', kind: 'auto' });
 });
 
 test('settings that are only read at startup ask for a restart', async () => {
@@ -115,7 +116,7 @@ test('the backup file downloads through the browser', async () => {
 
 test('a backup file is sent, checked, confirmed, restored, then the router restarts', async () => {
   const user = await renderPage(<BackupPage />);
-  await user.upload(await screen.findByLabelText('Restore from a file'), new File(['archive'], 'backup.tar.gz'));
+  await user.upload(await screen.findByLabelText('Backup file'), new File(['archive'], 'backup.tar.gz'));
   const c = await confirmDialog();
   expect(c.getByText(/91 files, 54 of them router settings/)).toBeTruthy();
   expect(c.getByText(/must restart afterwards/)).toBeTruthy();
@@ -128,7 +129,7 @@ test('a backup file is sent, checked, confirmed, restored, then the router resta
 test('a backup file the person backs out of is thrown away', async () => {
   const discard = vi.spyOn(api.safety.backup, 'discard');
   const user = await renderPage(<BackupPage />);
-  await user.upload(await screen.findByLabelText('Restore from a file'), new File(['archive'], 'backup.tar.gz'));
+  await user.upload(await screen.findByLabelText('Backup file'), new File(['archive'], 'backup.tar.gz'));
   await user.click((await confirmDialog()).getByRole('button', { name: 'Cancel' }));
   expect(discard).toHaveBeenCalled();
 });
@@ -138,6 +139,47 @@ test('a file the router refuses shows why', async () => {
     new Error('That archive holds files outside /etc (root/x), so it wasn’t restored.'),
   );
   const user = await renderPage(<BackupPage />);
-  await user.upload(await screen.findByLabelText('Restore from a file'), new File(['archive'], 'backup.tar.gz'));
+  await user.upload(await screen.findByLabelText('Backup file'), new File(['archive'], 'backup.tar.gz'));
   expect((await screen.findByRole('alert')).textContent).toBe('That archive holds files outside /etc (root/x), so it wasn’t restored.');
+});
+
+test('a restore the router had to undo says so', async () => {
+  await api.safety.backup.snapshots.create('Rollback test');
+  await api.safety.firewall.updateZone('iot', { forward: 'ACCEPT' });
+  const real = api.transport.zeeli.bind(api.transport);
+  // the page never reaches the router again, so the router's own timer fires
+  vi.spyOn(api.transport, 'zeeli').mockImplementation(async (area, method, args) =>
+    real(area, method === 'confirm' ? 'revert' : method, args),
+  );
+  const user = await renderPage(<BackupPage />);
+  await user.click(within(await rowOf('Rollback test')).getByRole('button', { name: /^Restore/ }));
+  await user.click((await confirmDialog()).getByRole('button', { name: 'Restore' }));
+  const alert = await screen.findByRole('alert');
+  expect(within(alert).getByText('The router undid the restore')).toBeTruthy();
+  expect(within(alert).getByText(/because it wasn’t confirmed in time/)).toBeTruthy();
+  expect(screen.queryByText('Restart the router to finish')).toBeNull();
+  await user.click(within(alert).getByRole('button', { name: 'Dismiss' }));
+  expect(screen.queryByText('The router undid the restore')).toBeNull();
+});
+
+test('while the router confirms a restore, the page says so', async () => {
+  const real = api.transport.zeeli.bind(api.transport);
+  let release: () => void = () => undefined;
+  let asked: () => void = () => undefined;
+  const confirmAsked = new Promise<void>((r) => (asked = r));
+  const gate = new Promise<void>((r) => (release = r));
+  vi.spyOn(api.transport, 'zeeli').mockImplementation(async (area, method, args) => {
+    if (method === 'confirm') {
+      asked();
+      await gate;
+    }
+    return real(area, method, args);
+  });
+  const user = await renderPage(<BackupPage />);
+  await user.click(within(await rowOf('Before adding a firewall rule')).getByRole('button', { name: /^Restore/ }));
+  await user.click((await confirmDialog()).getByRole('button', { name: 'Restore' }));
+  await confirmAsked;
+  expect(screen.getByText('Confirming your change…')).toBeTruthy();
+  release();
+  await expectToast(/^Restored firewall/);
 });

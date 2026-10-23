@@ -11,6 +11,8 @@ export interface Snapshot {
   /** Bytes of settings it holds. */
   size: number;
   configs: string[];
+  /** `auto` ones are the router’s own, taken before its risky writes; `manual` ones are a person’s. */
+  kind: 'manual' | 'auto';
 }
 
 export interface SnapshotChange {
@@ -109,6 +111,12 @@ export type ChangeOutcome =
 interface Armed {
   token: string;
   seconds: number;
+  /**
+   * Seconds to wait before the first confirm. The router ends the connections to its web
+   * ports a second after answering; a confirm sent before that would ride the old connection,
+   * which the firewall lets through whatever the new rules say.
+   */
+  settle?: number;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -121,6 +129,8 @@ const GRACE_MS = 5000;
  */
 export async function confirmChange(t: Transport, area: string, armed: Armed, retryMs = 1500): Promise<ChangeOutcome> {
   const deadline = Date.now() + armed.seconds * 1000 + GRACE_MS;
+  if (armed.settle) await sleep(armed.settle * 1000);
+  // a reset connection is a failed fetch, which the transport reports as offline, so it is retried like a timeout
   const ask = () =>
     t.zeeli<{ state: string; message?: string }>(area, 'confirm', { token: armed.token }).catch((err: unknown) => {
       if (isRouterError(err) && (err.kind === 'offline' || err.kind === 'timeout')) return null;
@@ -184,7 +194,10 @@ export const safety = (t: Transport) => {
     const result = await z<R & Partial<Armed>>('firewall', method, args, 30_000);
     // a change that changed nothing (moving a rule where it already is) arms no timer
     if (!result.token || !result.seconds) return { result, outcome: { state: 'confirmed' } };
-    return { result, outcome: await confirmChange(t, 'firewall', { token: result.token, seconds: result.seconds }) };
+    return {
+      result,
+      outcome: await confirmChange(t, 'firewall', { token: result.token, seconds: result.seconds, settle: result.settle ?? 0 }),
+    };
   }
 
   const zones = () => z<{ zones: AgentZone[] }>('firewall', 'zones').then((r) => r.zones);
@@ -195,16 +208,27 @@ export const safety = (t: Transport) => {
   return {
     backup: {
       snapshots: {
-        list: () => z<{ snapshots: Snapshot[]; keep: number }>('backup', 'list'),
+        list: () => z<{ snapshots: Snapshot[]; keep: number; autoKeep: number }>('backup', 'list'),
         create: (reason: string) => z<Snapshot>('backup', 'create', { reason }, 30_000),
         remove: (id: string) => z('backup', 'delete', { id }),
-        restore: (id: string) => z<RestoreResult>('backup', 'restore', { id }, 90_000),
+        /** A restore that touches the network or firewall is undone by the router unless confirmed, like a firewall write. */
+        async restore(id: string): Promise<RestoreResult & { outcome: ChangeOutcome }> {
+          const result = await z<RestoreResult & Partial<Armed>>('backup', 'restore', { id }, 90_000);
+          if (!result.token || !result.seconds) return { ...result, outcome: { state: 'confirmed' } };
+          const armed = { token: result.token, seconds: result.seconds, settle: result.settle ?? 0 };
+          return { ...result, outcome: await confirmChange(t, 'backup', armed) };
+        },
         diff: (id: string) => z<{ files: SnapshotChange[] }>('backup', 'diff', { id }, 30_000).then((r) => r.files),
       },
       /** Have the router make an archive and hand it to the browser. */
       async download(): Promise<{ blob: Blob; filename: string }> {
         const f = await z<BackupFile>('backup', 'download', {}, 60_000);
-        return { blob: await t.download(f.path, f.filename), filename: f.filename };
+        try {
+          return { blob: await t.download(f.path, f.filename), filename: f.filename };
+        } finally {
+          // the file holds passwords and keys: have the router delete it now that it is fetched (or failed to be)
+          await z('backup', 'finish_download').catch(() => undefined);
+        }
       },
       /** Send an archive to the router and have it checked. Nothing is restored yet. */
       async inspect(file: Blob, filename: string): Promise<BackupInspection> {

@@ -9,10 +9,15 @@
 
 import { lsdir, open, readfile, stat } from 'fs';
 import { cursor as uci_cursor } from 'uci';
-import { cursor, fail, paths, run, services } from 'zeeli.common';
+import { cursor, fail, paths, run } from 'zeeli.common';
 
-/** Snapshots kept; the oldest go first. */
+/**
+ * Snapshots kept per kind; the oldest go first. “Manual” ones are a person’s own and the ones
+ * made before a restore; “auto” ones are the router’s, taken before its own risky writes, so ten
+ * firewall edits can’t push a person’s snapshots out.
+ */
 const KEEP = 10;
+const AUTO_KEEP = 10;
 const ID = /^s([0-9]+)(-([0-9]+))?$/;
 const FILE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
 
@@ -24,6 +29,32 @@ function confdir() {
 function snapdir() {
 	return paths.confdir ? `${paths.state}/snapshots` : '/overlay/zeeli/snapshots';
 }
+
+/** Where a change that waits for its confirm is recorded: on flash, so a power cycle can’t keep it. */
+function pendingdir() {
+	return paths.confdir ? `${paths.state}/pending` : '/overlay/zeeli/rollback';
+}
+
+/** Snapshots a waiting (or half-undone) change needs to put things back. They are never pruned or deleted. */
+function pinned() {
+	const ids = [];
+	for (let n in lsdir(pendingdir()) ?? []) {
+		if (!match(n, /^[0-9a-f]{16}\.pending(\.running)?$/)) continue;
+		try {
+			push(ids, json(readfile(`${pendingdir()}/${n}`)).snapshot);
+		} catch (e) {
+		}
+	}
+	return ids;
+}
+
+/** Reloading a service is the one thing that can fail quietly, so its exit code is kept. Tests replace `run`. */
+const reloader = {
+	run: function(name) {
+		if (paths.confdir || !match(name, /^[a-z0-9_-]+$/)) return { code: 0, stdout: '' };
+		return run([`/etc/init.d/${name}`, 'reload']);
+	},
+};
 
 /** UCI files directly in `dir`, sorted. Folders such as cellular/ are not settings files. */
 function configFiles(dir) {
@@ -59,15 +90,25 @@ function find(id) {
 function remove(id) {
 	const snap = find(id);
 	if (!snap) return fail('That snapshot is already gone.');
+	if (index(pinned(), snap.id) >= 0) return fail('A change that is still waiting to be confirmed needs this snapshot.');
 	run(['rm', '-rf', `${snapdir()}/${snap.id}`]);
 	return { id: snap.id };
 }
 
+/** Drop the oldest of each kind beyond its limit, except snapshots a waiting change needs. */
+function prune() {
+	const pins = pinned();
+	for (let kind in ['manual', 'auto']) {
+		const ofKind = filter(list(), (m) => (m.kind ?? 'manual') == kind);
+		for (let old in slice(ofKind, kind == 'auto' ? AUTO_KEEP : KEEP)) if (index(pins, old.id) < 0) run(['rm', '-rf', `${snapdir()}/${old.id}`]);
+	}
+}
+
 /**
- * Copy the settings files (or just `only`, a list of config names) and keep the newest KEEP.
- * Returns the snapshot, or { error }.
+ * Copy the settings files (or just `only`, a list of config names) and keep the newest KEEP
+ * of its `kind` ('manual', or 'auto' for the router’s own). Returns the snapshot, or { error }.
  */
-function create(reason, only) {
+function create(reason, only, kind) {
 	const files = filter(configFiles(confdir()), (n) => only == null || index(only, n) >= 0);
 	if (!length(files)) return fail('There are no settings files to save.');
 	const base = snapdir();
@@ -86,11 +127,11 @@ function create(reason, only) {
 	}
 	let size = 0;
 	for (let n in files) size += stat(`${dir}/config/${n}`)?.size ?? 0;
-	const m = { time: now, reason: `${reason}`, size, configs: files };
+	const m = { time: now, reason: `${reason}`, size, configs: files, kind: kind == 'auto' ? 'auto' : 'manual' };
 	const f = open(`${dir}/meta.json`, 'w');
 	f.write(sprintf('%J', m));
 	f.close();
-	for (let old in slice(list(), KEEP)) run(['rm', '-rf', `${base}/${old.id}`]);
+	prune();
 	return { ...m, id };
 }
 
@@ -112,25 +153,39 @@ const RELOAD = {
 };
 const RELOAD_ORDER = ['network', 'dnsmasq', 'firewall', 'system', 'dropbear'];
 
-/**
- * Write a snapshot's files back over the current ones (only those that differ, and only
- * `only` if given), then reload what can be reloaded. Unless `only` is given (the rollback
- * timer, which is itself the undo) a fresh snapshot is made first, so a restore can be undone.
- * Returns { restored, reloaded, rebootNeeded, summary, undo }.
- */
-function restore(id, only) {
+/** Settings whose reload can cut the console off, so a restore that touches them waits for a confirm. */
+const RISKY = ['network', 'wireless', 'firewall', 'dropbear'];
+
+/** The settings files a restore of `id` would change (only `only`, if given). Returns { snap, differ } or { error }. */
+function plan(id, only) {
 	const snap = find(id);
 	if (!snap) return fail('That snapshot is gone.');
 	const src = `${snapdir()}/${snap.id}/config`;
 	const differ = filter(snap.configs, (n) => (only == null || index(only, n) >= 0) && readfile(`${src}/${n}`) != readfile(`${confdir()}/${n}`));
-	if (!length(differ)) return { restored: [], reloaded: [], rebootNeeded: false, summary: 'The router already matches this snapshot.', undo: null };
+	return { snap, differ };
+}
+
+/**
+ * Write a snapshot's files back over the current ones (only those that differ), then reload
+ * what can be reloaded. `opts`: `only` limits it to some files; `undo` (default: unless `only`
+ * is given) takes a snapshot of the current settings first; `reload: false` writes the files
+ * and nothing else, for the boot-time recovery, when the services haven’t started yet.
+ * Returns { restored, reloaded, failed, rebootNeeded, summary, undo }, where `failed` lists the
+ * reloads that exited with an error.
+ */
+function restore(id, opts) {
+	const only = opts?.only;
+	const p = plan(id, only);
+	if (p.error) return p;
+	const differ = p.differ;
+	if (!length(differ)) return { restored: [], reloaded: [], failed: [], rebootNeeded: false, summary: 'The router already matches this snapshot.', undo: null };
 
 	let undo = null;
-	if (only == null) {
-		undo = create(`Before restoring the snapshot from ${snap.reason}`);
+	if (opts?.undo ?? only == null) {
+		undo = create(`Before restoring the snapshot from ${p.snap.reason}`);
 		if (undo.error) return undo;
 	}
-	const r = run(['cp', '-p', ...map(differ, (n) => `${src}/${n}`), `${confdir()}/`]);
+	const r = run(['cp', '-p', ...map(differ, (n) => `${snapdir()}/${p.snap.id}/config/${n}`), `${confdir()}/`]);
 	if (r.code != 0) return fail(`Couldn’t write the settings back: ${trim(r.stdout)}`);
 
 	const wanted = [];
@@ -139,15 +194,20 @@ function restore(id, only) {
 		if (!(n in RELOAD)) push(needsRestart, n);
 		else if (RELOAD[n] != null && index(wanted, RELOAD[n]) < 0) push(wanted, RELOAD[n]);
 	}
-	const reloaded = filter(RELOAD_ORDER, (s) => index(wanted, s) >= 0);
-	for (let s in reloaded) services.reload(s);
+	const reloaded = opts?.reload == false ? [] : filter(RELOAD_ORDER, (s) => index(wanted, s) >= 0);
+	const failed = [];
+	for (let s in reloaded) {
+		const out = reloader.run(s);
+		if (out.code != 0) push(failed, { service: s, output: trim(out.stdout) });
+	}
 
 	const names = join(', ', differ);
 	let summary = `Restored ${names}.`;
 	if (length(reloaded)) summary += ` Reloaded ${join(', ', reloaded)} so the change is live now.`;
+	if (length(failed)) summary += ` ${join(', ', map(failed, (f) => f.service))} didn’t reload cleanly.`;
 	if (length(needsRestart))
 		summary += ` ${join(', ', needsRestart)} ${length(needsRestart) == 1 ? 'is' : 'are'} only read when the router starts, so restart it for that to take effect.`;
-	return { restored: differ, reloaded, rebootNeeded: length(needsRestart) > 0, summary, undo: undo?.id ?? null };
+	return { restored: differ, reloaded, failed, rebootNeeded: length(needsRestart) > 0, summary, undo: undo?.id ?? null };
 }
 
 /** Where two UCI sections that have no name of their own are matched up: by type and `name`, else by position. */
@@ -209,4 +269,4 @@ function diff(id) {
 }
 
 // this ucode needs exports listed rather than marked inline
-export { KEEP, create, list, find, remove, restore, diff };
+export { KEEP, AUTO_KEEP, RISKY, reloader, pendingdir, create, list, find, remove, plan, restore, diff };

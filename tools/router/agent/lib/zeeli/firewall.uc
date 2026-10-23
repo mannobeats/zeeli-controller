@@ -10,8 +10,9 @@
 // methods also check the rule’s name and refuse when the list has changed under the console.
 'use strict';
 
-import { cursor, fail, services } from 'zeeli.common';
-import { begin, discard } from 'zeeli.rollback';
+import { cursor, fail } from 'zeeli.common';
+import { abandon, admin, begin, discard } from 'zeeli.rollback';
+import { reloader } from 'zeeli.snapshots';
 
 const POLICY = ['ACCEPT', 'REJECT', 'DROP'];
 const PROTO = ['tcp udp', 'tcp', 'udp', 'icmp', 'all'];
@@ -199,6 +200,68 @@ function ruleSection(all, id, name) {
 	return s;
 }
 
+/* ---------- keeping the admin network reachable ---------- */
+
+const ADMIN_PORTS = [22, 53, 67, 80, 443];
+
+/** The zone that holds the `lan` network: where the console is reached from. */
+function lanZone(all) {
+	const zonesNow = filter(map(keys(all), (k) => all[k]), (z) => z['.type'] == 'zone');
+	return filter(zonesNow, (z) => index(words(z.network), 'lan') >= 0)[0] ?? filter(zonesNow, (z) => z.name == 'lan')[0];
+}
+
+function coversAdminPort(spec) {
+	if (spec == '') return true;
+	for (let part in split(spec, ' ')) {
+		const ends = split(part, '-');
+		const lo = int(ends[0]), hi = int(ends[length(ends) - 1]);
+		for (let p in ADMIN_PORTS) if (p >= lo && p <= hi) return true;
+	}
+	return false;
+}
+
+const zoneName = (z) => z.name == 'lan' ? 'the Main LAN' : `the ${z.name} zone`;
+
+/**
+ * A rule as it will be once written: the section it changes (if any) with the new values on
+ * top and the cleared options gone.
+ */
+function effective(base, v) {
+	const r = { ...(base ?? {}) };
+	for (let k, val in v.values) r[k] = val;
+	for (let k in v.clear) delete r[k];
+	return r;
+}
+
+/**
+ * Refuse a rule that would shut the admin network out: enabled, rejecting or dropping what
+ * the lan zone sends to the router itself (no destination zone) on a port the console, DNS or
+ * DHCP uses, or on every port. Confirming over the open connection wouldn’t catch it, since
+ * established connections are let through, so it has to be stopped here.
+ */
+function lockout(all, rule) {
+	const lz = lanZone(all);
+	if (!lz) return null;
+	const from = text(rule.src);
+	const blocks = rule.enabled != '0' && index(['REJECT', 'DROP'], rule.target) >= 0;
+	const toRouter = text(rule.dest) == '';
+	const tcpOrUdp = index(['tcp udp', 'tcp', 'udp', 'all'], text(rule.proto) == '' ? 'tcp udp' : text(rule.proto)) >= 0;
+	if (!blocks || !toRouter || !tcpOrUdp || (from != lz.name && from != '*')) return null;
+	if (text(rule.src_ip) != '' || text(rule.dest_ip) != '' || !coversAdminPort(text(rule.dest_port))) return null;
+	return fail(`That rule would block ${zoneName(lz)} from reaching the router itself, and then nothing on it could open this console. Narrow it to a device or a port, or send it to another zone.`);
+}
+
+/** The same, for a zone change: the admin zone has to keep accepting traffic to the router and keep the lan network. */
+function zoneLockout(all, name, a) {
+	const lz = lanZone(all);
+	if (!lz || lz.name != name) return null;
+	if (a.input != null && a.input != 'ACCEPT')
+		return fail(`Nothing on ${zoneName(lz)} could open this console if it stopped allowing traffic to the router.`);
+	if (a.networks != null && index(a.networks, 'lan') < 0)
+		return fail(`The lan network has to stay in ${zoneName(lz)}, or its devices could no longer reach this console.`);
+	return null;
+}
+
 /* ---------- writes ---------- */
 
 /**
@@ -224,8 +287,10 @@ function write(what, stage) {
 		discard(arm.token);
 		return fail(`The router wouldn’t save the change: ${c.error() ?? 'unknown error'}`);
 	}
-	services.reload('firewall');
-	return { ...result, token: arm.token, seconds: arm.seconds, expires: arm.expires };
+	const out = reloader.run('firewall');
+	if (out.code != 0) return abandon(arm, `The firewall didn’t reload (${trim(out.stdout) || `exit code ${out.code}`}), so the router put the settings back.`);
+	admin.flush();
+	return { ...result, token: arm.token, seconds: arm.seconds, settle: arm.settle, expires: arm.expires };
 }
 
 function setOption(c, sid, opt, v) {
@@ -238,6 +303,8 @@ function zone_update(a) {
 		const z = filter(sectionsOf(all, 'zone'), (s) => s.name == a.name)[0];
 		if (!z) return fail(`There’s no zone called ${a.name}.`);
 		if (owner(z) == 'service') return fail('Zones made by router services are changed from that service.');
+		const stop = zoneLockout(all, a.name, a);
+		if (stop) return stop;
 		const sid = z['.name'];
 		for (let opt in ['input', 'output', 'forward'])
 			if (a[opt] != null) {
@@ -306,6 +373,8 @@ function rule_add(a) {
 		};
 		const v = ruleValues(given, all, null);
 		if (v.error) return v;
+		const stop = lockout(all, effective(null, v));
+		if (stop) return stop;
 		const sid = c.add('firewall', 'rule');
 		apply(c, sid, v);
 		return { id: sid };
@@ -318,6 +387,8 @@ function rule_update(a) {
 		if (s.error) return s;
 		const v = ruleValues(a, all, s);
 		if (v.error) return v;
+		const stop = lockout(all, effective(s, v));
+		if (stop) return stop;
 		apply(c, s['.name'], v);
 		return {};
 	});
@@ -328,6 +399,8 @@ function rule_enable(a) {
 	return write(`turning a firewall rule ${a.enabled ? 'on' : 'off'}`, (c, all) => {
 		const s = ruleSection(all, a.id, a.current);
 		if (s.error) return s;
+		const stop = a.enabled ? lockout(all, effective(s, { values: { enabled: '1' }, clear: [] })) : null;
+		if (stop) return stop;
 		c.set('firewall', s['.name'], 'enabled', a.enabled ? '1' : '0');
 		return {};
 	});

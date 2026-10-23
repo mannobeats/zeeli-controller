@@ -29,7 +29,8 @@ import { Loaded } from '../../ui/Loading.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
 import { MeshNodes } from './mesh-nodes.tsx';
-import { AgentPorts } from './ports-agent.tsx';
+import { deviceColumns, linkColumns, usePortLinks } from './port-links.tsx';
+import { PortProfiles, UnplacedNote } from './ports-agent.tsx';
 
 /* ======================= Ethernet ports ======================= */
 
@@ -48,6 +49,7 @@ export function PortsPage() {
     queryFn: async () => ({ ports: await api.internet.ports(), networks: await api.networks.list() }),
   });
   const { toast, confirm } = useFeedback();
+  const links = usePortLinks();
   const [editing, setEditing] = useState<EthernetPort | null>(null);
   const role = useWrite(({ port, to }: { port: EthernetPort; to: 'wan' | 'lan' }) => api.internet.setPortRole(port, to), [['ports']]);
 
@@ -101,6 +103,7 @@ export function PortsPage() {
                 onRowClick={setEditing}
                 columns={[
                   { key: 'port', header: 'Port', phone: 'title', cell: (p) => <span className="name">{p.label}</span> },
+                  ...linkColumns(links),
                   {
                     key: 'role',
                     header: 'Role',
@@ -133,6 +136,7 @@ export function PortsPage() {
                         vlanName(p.untagged)
                       ),
                   },
+                  ...deviceColumns(links),
                   {
                     key: 'act',
                     header: '',
@@ -153,8 +157,9 @@ export function PortsPage() {
                   },
                 ]}
               />
+              <UnplacedNote links={links} />
             </Panel>
-            <AgentPorts ports={ports} networks={networks} />
+            <PortProfiles ports={ports} networks={networks} />
             {editing ? (
               <PortSheet
                 key={editing.name}

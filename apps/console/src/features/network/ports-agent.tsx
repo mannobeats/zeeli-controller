@@ -1,8 +1,8 @@
 import { IconPlus } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import type { Client, EthernetPort, Network, PortLink, PortProfile } from '@zeeli/router-api';
+import type { EthernetPort, Network, PortProfile } from '@zeeli/router-api';
 import { useState } from 'react';
-import { useAgent, useClients, useWrite } from '../../api/queries.ts';
+import { useAgent, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { plural } from '../../lib/format.ts';
@@ -10,94 +10,26 @@ import { Button } from '../../ui/Button.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { ChipPicker, SelectField, TextField } from '../../ui/fields.tsx';
-import { Chip, Note, Panel } from '../../ui/Layout.tsx';
+import { Note, Panel } from '../../ui/Layout.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
+import type { PortLinks } from './port-links.tsx';
 
-/** Link speed as people say it: 2.5 Gb/s, 100 Mb/s. */
-const speedText = (mbps: number) => (mbps >= 1000 ? `${mbps / 1000} Gb/s` : `${mbps} Mb/s`);
-
-/** What the agent adds to the Ethernet ports page: real link state, devices, and profiles. */
-export function AgentPorts({ ports, networks }: { ports: EthernetPort[]; networks: Network[] }) {
-  const agent = useAgent();
-  if (!agent.data) return null;
+/** Wired devices the switch chip can't place, said once under the ports table. */
+export function UnplacedNote({ links }: { links?: PortLinks }) {
+  if (!links?.unplaced.length) return null;
   return (
-    <>
-      <PortStatus ports={ports} networks={networks} />
-      <Profiles ports={ports} networks={networks} />
-    </>
+    <Note>
+      {plural(links.unplaced.length, 'wired device')} ({links.unplaced.join(', ')}) sit behind the LAN switch. This router’s switch chip
+      doesn’t say which port each is on, so they’re shown once only one LAN port has a cable.
+    </Note>
   );
 }
 
-/* ---------- status ---------- */
-
-function PortStatus({ ports, networks }: { ports: EthernetPort[]; networks: Network[] }) {
-  const status = useQuery({ queryKey: ['port-status'], queryFn: api.safety.ports.status, refetchInterval: 10_000 });
-  const clients = useClients().data ?? [];
-  const name = (mac: string) => clients.find((c: Client) => c.mac.toUpperCase() === mac)?.name ?? mac;
-  const label = (id: number) => networks.find((n) => n.vlanId === id || (id === 1 && n.id === 'main'))?.label ?? `VLAN ${id}`;
-  const gl = (p: PortLink) => ports.find((x) => x.name === p.name);
-  const unplaced = status.data?.unattributed ?? [];
-
-  return (
-    <Panel title="Port details" note="Link, networks and the devices behind each port">
-      {status.isError ? <p className="form-error">{errorMessage(status.error)}</p> : null}
-      <DataTable
-        label="Port details"
-        rows={status.data?.ports ?? []}
-        rowKey={(p) => p.name}
-        columns={[
-          { key: 'port', header: 'Port', phone: 'title', cell: (p) => <span className="name">{p.label}</span> },
-          {
-            key: 'link',
-            header: 'Link',
-            phone: 'sub',
-            cell: (p) =>
-              p.link ? (
-                <>
-                  <Chip tone="ok">Connected</Chip> {p.speedMbps ? <span className="num">{speedText(p.speedMbps)}</span> : null}
-                  {p.duplex ? <span className="muted"> {p.duplex} duplex</span> : null}
-                </>
-              ) : p.link === false ? (
-                <span className="muted">No cable</span>
-              ) : (
-                <span className="muted">Not reported</span>
-              ),
-          },
-          { key: 'role', header: 'Role', cell: (p) => (p.role === 'wan' ? 'Internet (WAN)' : 'LAN') },
-          {
-            key: 'nets',
-            header: 'Networks',
-            cell: (p) => {
-              const g = gl(p);
-              if (p.role === 'wan' || !g || g.untagged === null) return <span className="muted">—</span>;
-              return (
-                <>
-                  {label(g.untagged)}
-                  {g.tagged.length ? <span className="muted"> + {g.tagged.map(label).join(', ')} tagged</span> : null}
-                </>
-              );
-            },
-          },
-          {
-            key: 'devices',
-            header: 'Devices',
-            cell: (p) =>
-              p.devices.length ? (
-                p.devices.map((d) => name(d.mac)).join(', ') + (p.devices.some((d) => d.inferred) ? ' (the only cable on this switch)' : '')
-              ) : (
-                <span className="muted">—</span>
-              ),
-          },
-        ]}
-      />
-      {unplaced.length ? (
-        <Note>
-          {plural(unplaced.length, 'wired device')} ({unplaced.map((d) => name(d.mac)).join(', ')}) sit behind the LAN switch. This router’s
-          switch chip doesn’t say which port each is on, so they’re shown once only one LAN port has a cable.
-        </Note>
-      ) : null}
-    </Panel>
-  );
+/** Port profiles, when the router has the agent. */
+export function PortProfiles({ ports, networks }: { ports: EthernetPort[]; networks: Network[] }) {
+  const agent = useAgent();
+  if (!agent.data) return null;
+  return <Profiles ports={ports} networks={networks} />;
 }
 
 /* ---------- profiles ---------- */

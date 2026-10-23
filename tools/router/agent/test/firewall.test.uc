@@ -1,16 +1,23 @@
 'use strict';
 
 import { eq, ok, test, plugin, done } from 'assert';
-import { cursor, paths, services } from 'zeeli.common';
+import { cursor, paths } from 'zeeli.common';
 import * as fw from 'zeeli.firewall';
 import * as rollback from 'zeeli.rollback';
 import * as snapshots from 'zeeli.snapshots';
+import { pendingdir, reloader } from 'zeeli.snapshots';
 import { lsdir, readfile, stat, writefile } from 'fs';
 
 // The lib modules imported here are the ones these direct calls use; rpcd plugins loaded through
 // plugin() get their own copies, which is fine for checking arguments but not for these hooks.
 const reloaded = [];
-services.reload = (name) => push(reloaded, name);
+let failReload = false;
+reloader.run = (name) => {
+	push(reloaded, name);
+	return failReload ? { code: 1, stdout: `${name} is unhappy` } : { code: 0, stdout: '' };
+};
+let flushes = 0;
+rollback.admin.flush = () => flushes++;
 const timers = [];
 rollback.timer.start = (token, seconds) => push(timers, [token, seconds]);
 
@@ -57,7 +64,7 @@ test('a zone change snapshots, writes, reloads the firewall and hands back a tok
 	eq(reloaded, ['firewall']);
 	eq(r.seconds, 30);
 	eq(timers[0], [r.token, 30]);
-	ok(stat(`${paths.state}/rollback/${r.token}.pending`), 'a change is waiting');
+	ok(stat(`${pendingdir()}/${r.token}.pending`), 'a change is waiting');
 	const snap = snapshots.list()[0];
 	eq(snap.reason, 'Before changing a firewall zone');
 	eq(readfile(`${paths.state}/snapshots/${snap.id}/config/firewall`), before);
@@ -68,7 +75,7 @@ test('a zone change snapshots, writes, reloads the firewall and hands back a tok
 });
 
 function pendingToken() {
-	for (let n in lsdir(`${paths.state}/rollback`) ?? []) {
+	for (let n in lsdir(pendingdir()) ?? []) {
 		const m = match(n, /^([0-9a-f]{16})\.pending$/);
 		if (m) return m[1];
 	}
@@ -92,7 +99,7 @@ test('refused zone changes leave the firewall file and the rollback folder alone
 	for (let t in [
 		[{ name: 'tailscale0', input: 'DROP' }, 'Zones made by router services are changed from that service.'],
 		[{ name: 'nothere', input: 'DROP' }, 'There’s no zone called nothere.'],
-		[{ name: 'lan', input: 'MAYBE' }, 'A zone’s traffic must be allowed, rejected or dropped.'],
+		[{ name: 'guest', input: 'MAYBE' }, 'A zone’s traffic must be allowed, rejected or dropped.'],
 	])
 		eq(fw.zone_update(t[0]).error, t[1]);
 	eq(file(), before);
@@ -219,7 +226,7 @@ test('with no confirm, the timer puts the firewall back and reloads it', () => {
 	const before = file();
 	splice(reloaded, 0);
 	writefile(`${paths.confdir}/dhcp`, `${readfile(`${paths.confdir}/dhcp`)}# touched while waiting\n`);
-	const r = fw.rule_add({ name: 'Lock me out', src: 'lan', target: 'DROP', proto: 'all' });
+	const r = fw.rule_add({ name: 'Lock me out', src: 'guest', target: 'DROP', proto: 'all' });
 	ok(!r.error, r.error);
 	ok(rule('Lock me out'), 'written');
 	splice(reloaded, 0);
@@ -238,8 +245,8 @@ test('with no confirm, the timer puts the firewall back and reloads it', () => {
 
 test('a countdown whose timer never ran is finished before the next change starts', () => {
 	const before = file();
-	const r = fw.rule_add({ name: 'Stale', src: 'lan', target: 'DROP', proto: 'all' });
-	const p = `${paths.state}/rollback/${r.token}.pending`;
+	const r = fw.rule_add({ name: 'Stale', src: 'guest', target: 'DROP', proto: 'all' });
+	const p = `${pendingdir()}/${r.token}.pending`;
 	writefile(p, replace(readfile(p), sprintf('%d', r.expires), sprintf('%d', time() - 5)));
 	const next = fw.zone_update({ name: 'lan', mssClamp: true });
 	ok(!next.error, next.error);
@@ -267,6 +274,81 @@ test('tokens are checked everywhere they are read', () => {
 	}
 	eq(call('confirm', { token: 'x' }), { error: 'That isn’t a change token.' });
 	eq(rollback.confirm('0123456789abcdef'), { state: 'unknown', message: 'The router has no record of that change.' });
+});
+
+test('the admin network can’t be locked out: its zone keeps accepting traffic to the router', () => {
+	const before = file();
+	const waiting = pendingToken();
+	for (let input in ['REJECT', 'DROP'])
+		eq(fw.zone_update({ name: 'lan', input }).error, 'Nothing on the Main LAN could open this console if it stopped allowing traffic to the router.');
+	eq(fw.zone_update({ name: 'lan', networks: [] }).error, 'The lan network has to stay in the Main LAN, or its devices could no longer reach this console.');
+	eq(fw.zone_update({ name: 'lan', networks: ['guest'] }).error, 'The lan network has to stay in the Main LAN, or its devices could no longer reach this console.');
+	eq(file(), before);
+	eq(waiting, pendingToken());
+	// the same edits on another zone are fine, and so is keeping the lan zone as it is
+	keep(fw.zone_update({ name: 'guest', input: 'REJECT' }));
+	keep(fw.zone_update({ name: 'lan', input: 'ACCEPT', networks: ['lan'] }));
+});
+
+test('a rule that blocks the admin network from the router is refused, narrower ones are not', () => {
+	const before = file();
+	const msg = 'That rule would block the Main LAN from reaching the router itself, and then nothing on it could open this console. Narrow it to a device or a port, or send it to another zone.';
+	for (let t in [
+		{ target: 'DROP' },
+		{ target: 'REJECT', proto: 'tcp' },
+		{ target: 'REJECT', proto: 'all' },
+		{ target: 'REJECT', destPort: '443' },
+		{ target: 'REJECT', destPort: '8080 22' },
+		{ target: 'DROP', destPort: '1-100', proto: 'udp' },
+		{ target: 'DROP', src: '*' },
+	])
+		eq(fw.rule_add({ name: 'Lock', src: 'lan', ...t }).error, msg, sprintf('%J', t));
+	eq(file(), before);
+	for (let t in [
+		{ target: 'REJECT', destPort: '8080' },
+		{ target: 'REJECT', destPort: '2000-3000' },
+		{ target: 'REJECT', dest: 'wan' },
+		{ target: 'REJECT', srcIp: '10.0.10.55' },
+		{ target: 'REJECT', proto: 'icmp' },
+		{ target: 'ACCEPT' },
+		{ target: 'REJECT', src: 'guest' },
+		{ target: 'REJECT', enabled: false },
+	])
+		keep(fw.rule_add({ name: 'Fine', src: 'lan', ...t }));
+});
+
+test('editing or turning on a rule can’t make it lock the admin network out either', () => {
+	const fine = rule('Fine');
+	const r = filter(fw.rules().rules, (x) => x.name == 'Fine' && x.destPort == '8080')[0];
+	eq(fw.rule_update({ id: r.id, current: 'Fine', destPort: '' }).error != null, true);
+	eq(fw.rule_update({ id: r.id, current: 'Fine', destPort: '443' }).error != null, true);
+	keep(fw.rule_update({ id: r.id, current: 'Fine', destPort: '9000', srcIp: '10.0.10.9' }));
+	// a disabled one that would lock out: turning it on is refused, leaving it off is fine
+	const off = filter(fw.rules().rules, (x) => x.name == 'Fine' && x.enabled == false)[0];
+	eq(fw.rule_update({ id: off.id, current: 'Fine', enabled: true }).error != null, true);
+	eq(fw.rule_enable({ id: off.id, current: 'Fine', enabled: true }).error != null, true);
+	keep(fw.rule_enable({ id: off.id, current: 'Fine', enabled: false }));
+	ok(fine != null);
+});
+
+test('a confirmable write ends the connections to the web ports; a refused one does not', () => {
+	flushes = 0;
+	fw.zone_update({ name: 'lan', input: 'DROP' });
+	eq(flushes, 0);
+	const r = fw.zone_update({ name: 'guest', mssClamp: true });
+	eq(flushes, 1);
+	eq(r.settle, 2);
+	keep(r);
+});
+
+test('a firewall that won’t reload is put back at once', () => {
+	const before = file();
+	failReload = true;
+	const r = fw.zone_update({ name: 'guest', input: 'ACCEPT' });
+	failReload = false;
+	eq(r.error, 'The firewall didn’t reload (firewall is unhappy), so the router put the settings back.');
+	eq(file(), before);
+	ok(!pendingToken());
 });
 
 done();
