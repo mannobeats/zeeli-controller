@@ -3,6 +3,7 @@ import { api } from '../../api/router.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { Figure } from '../../ui/Figure.tsx';
 import { Empty, Grid, Panel } from '../../ui/Layout.tsx';
+import { useLimit } from '../../ui/limit.tsx';
 
 import { share, trimLeading, useDeviceName } from './names.ts';
 
@@ -58,13 +59,14 @@ export function DnsStats() {
   );
 }
 
-function TopList({ title, rows, tone }: { title: string; rows: [string, number][]; tone?: 'bad' }) {
-  const max = Math.max(1, ...rows.map(([, n]) => n));
+function TopList({ title, rows: all, tone }: { title: string; rows: [string, number][]; tone?: 'bad' }) {
+  const { shown: rows, more } = useLimit(all, 8);
+  const max = Math.max(1, ...all.map(([, n]) => n));
   return (
     <Panel title={title}>
-      {rows.length ? (
+      {all.length ? (
         <ol className="toplist">
-          {rows.slice(0, 8).map(([name, n]) => (
+          {rows.map(([name, n]) => (
             <li key={name}>
               <span className="tl-name">{name}</span>
               <span className="tl-n num">{n.toLocaleString()}</span>
@@ -77,6 +79,7 @@ function TopList({ title, rows, tone }: { title: string; rows: [string, number][
       ) : (
         <Empty>Nothing yet.</Empty>
       )}
+      {more}
     </Panel>
   );
 }

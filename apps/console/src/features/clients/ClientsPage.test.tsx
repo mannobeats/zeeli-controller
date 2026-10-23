@@ -102,3 +102,24 @@ test('the selection bar counts checked rows and Escape clears it', async () => {
   await user.keyboard('{Escape}');
   await waitFor(() => expect(screen.queryByRole('toolbar')).toBeNull());
 });
+
+test('search matches every word, in any field', async () => {
+  const user = await renderPage(<ClientsPage />);
+  await table();
+  const c = await firstOnline();
+  await user.type(screen.getByRole('searchbox', { name: 'Search clients' }), `${c.name.split(' ')[0]} ${c.ip}`);
+  expect((await table()).getByText(c.name)).toBeTruthy();
+  expect((await table()).getAllByRole('row')).toHaveLength(2);
+});
+
+test('a network filter narrows to the devices on that network', async () => {
+  const user = await renderPage(<ClientsPage />);
+  await table();
+  const nets = await api.networks.list();
+  const everyone = (await table()).getAllByRole('row').length;
+  const menu = within(screen.getByRole('region', { name: 'Filters' }));
+  await user.click(await menu.findByRole('button', { name: new RegExp(`^${nets[0]?.label}`) }));
+  expect((await table()).getAllByRole('row').length).toBeLessThan(everyone);
+  await user.click(menu.getByRole('button', { name: /^Any network/ }));
+  expect((await table()).getAllByRole('row')).toHaveLength(everyone);
+});

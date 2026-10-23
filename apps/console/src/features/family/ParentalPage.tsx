@@ -24,6 +24,7 @@ import { useFeedback } from '../../ui/feedback.tsx';
 import { ChipPicker, Row2, Segmented, Switch, SwitchRow, TextField } from '../../ui/fields.tsx';
 import { Note, PageHeader, Panel, ToneText } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
+import { useLimit } from '../../ui/limit.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
 import { TextArea } from '../../ui/TextArea.tsx';
 import { DevicePick } from '../clients/DevicePick.tsx';
@@ -230,9 +231,10 @@ const blockedSummary = (p: Profile) =>
     .filter(Boolean)
     .join(', ') || 'Nothing blocked';
 
-function ProfileDevices({ macs, clients }: { macs: string[]; clients: Client[] }) {
+function ProfileDevices({ macs: all, clients }: { macs: string[]; clients: Client[] }) {
   const byMac = new Map(clients.map((c) => [c.mac, c]));
-  if (!macs.length) return <span className="muted">No devices</span>;
+  const { shown: macs, more } = useLimit(all, 8);
+  if (!all.length) return <span className="muted">No devices</span>;
   return (
     <>
       {macs.map((mac) => {
@@ -252,6 +254,7 @@ function ProfileDevices({ macs, clients }: { macs: string[]; clients: Client[] }
           </span>
         );
       })}
+      {more}
     </>
   );
 }

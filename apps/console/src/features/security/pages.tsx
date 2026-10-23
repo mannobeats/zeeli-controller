@@ -22,6 +22,7 @@ import { checkRulePort } from '../../lib/rules.ts';
 import { Button } from '../../ui/Button.tsx';
 import { stateColumn } from '../../ui/columns.tsx';
 import { type Column, DataTable } from '../../ui/DataTable.tsx';
+import { Searchable } from '../../ui/FilterBar.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { ChipPicker, Row2, SelectField, Switch, SwitchRow, TextField } from '../../ui/fields.tsx';
 import { Empty, Note, PageHeader, Panel, Stack } from '../../ui/Layout.tsx';
@@ -62,34 +63,38 @@ function RuleTable<R extends Rule>({
   busy: boolean;
 }) {
   return (
-    <DataTable
-      label={label}
-      rows={rows}
-      rowKey={(r) => r.id}
-      onRowClick={onEdit}
-      rowClass={(r) => (r.enabled ? undefined : 'off')}
-      bulk={[
-        { label: 'Turn on', run: (l) => setOn(l, true), when: (l) => l.some((r) => !r.enabled) },
-        { label: 'Turn off', run: (l) => setOn(l, false), when: (l) => l.some((r) => r.enabled) },
-        { label: 'Delete', danger: true, run: remove },
-      ]}
-      columns={[
-        ...columns,
-        {
-          key: 'on',
-          header: 'On',
-          align: 'end',
-          phone: 'end',
-          cell: (r) => (
-            // biome-ignore lint/a11y/noStaticElementInteractions: keeps the row from opening when the switch is used
-            // biome-ignore lint/a11y/useKeyWithClickEvents: the switch handles keys
-            <span onClick={stop}>
-              <Switch checked={r.enabled} label={`${r.name} on`} onChange={(on) => setOn([r], on)} disabled={busy} />
-            </span>
-          ),
-        },
-      ]}
-    />
+    <Searchable rows={rows} label={`Search ${label.toLowerCase()}`} placeholder="Name, port or address" none="Nothing matches.">
+      {(hit) => (
+        <DataTable
+          label={label}
+          rows={hit}
+          rowKey={(r) => r.id}
+          onRowClick={onEdit}
+          rowClass={(r) => (r.enabled ? undefined : 'off')}
+          bulk={[
+            { label: 'Turn on', run: (l) => setOn(l, true), when: (l) => l.some((r) => !r.enabled) },
+            { label: 'Turn off', run: (l) => setOn(l, false), when: (l) => l.some((r) => r.enabled) },
+            { label: 'Delete', danger: true, run: remove },
+          ]}
+          columns={[
+            ...columns,
+            {
+              key: 'on',
+              header: 'On',
+              align: 'end',
+              phone: 'end',
+              cell: (r) => (
+                // biome-ignore lint/a11y/noStaticElementInteractions: keeps the row from opening when the switch is used
+                // biome-ignore lint/a11y/useKeyWithClickEvents: the switch handles keys
+                <span onClick={stop}>
+                  <Switch checked={r.enabled} label={`${r.name} on`} onChange={(on) => setOn([r], on)} disabled={busy} />
+                </span>
+              ),
+            },
+          ]}
+        />
+      )}
+    </Searchable>
   );
 }
 

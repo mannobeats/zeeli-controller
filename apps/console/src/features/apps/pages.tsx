@@ -1,6 +1,6 @@
 import { IconSearch } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import type { TorConfig } from '@zeeli/router-api';
+import type { AppState, TorConfig } from '@zeeli/router-api';
 import { useState } from 'react';
 import { useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
@@ -12,8 +12,10 @@ import { AdvancedGate } from '../../ui/AdvancedGate.tsx';
 import { Button } from '../../ui/Button.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { Segmented, SwitchRow, TextField } from '../../ui/fields.tsx';
+import { matches } from '../../ui/filter.ts';
 import { Chip, Empty, KeyValues, PageHeader, Panel, Stack } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
+import { useLimit } from '../../ui/limit.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
 import { AppIcon, useAppChange, WaitNote } from './common.tsx';
 
@@ -31,11 +33,8 @@ export function AppStorePage() {
     <AdvancedGate title="App store">
       <Loaded query={query} title="App store">
         {(apps) => {
-          const needle = q.trim().toLowerCase();
           const shown = apps.filter(
-            (a) =>
-              (filter === 'all' || (filter === 'installed') === a.installed) &&
-              (!needle || `${a.name} ${a.summary} ${a.category}`.toLowerCase().includes(needle)),
+            (a) => (filter === 'all' || (filter === 'installed') === a.installed) && matches(q, [a.name, a.summary, a.category]),
           );
           const categories = [...new Set(shown.map((a) => a.category))];
           return (
@@ -66,50 +65,7 @@ export function AppStorePage() {
               </div>
               {categories.length ? (
                 categories.map((cat) => (
-                  <section key={cat} className="app-section">
-                    <h2 className="app-cat">{cat}</h2>
-                    <div className="app-grid">
-                      {shown
-                        .filter((a) => a.category === cat)
-                        .map((a) => {
-                          const open = () => navigate(appPageId(a));
-                          return (
-                            <article className="app-tile" key={a.id}>
-                              <AppIcon id={a.id} />
-                              <div className="app-text">
-                                <h3>{a.name}</h3>
-                                <p>{a.summary}</p>
-                              </div>
-                              <div className="app-actions">
-                                {a.running === true ? (
-                                  <Chip tone="ok">Running</Chip>
-                                ) : a.installed ? (
-                                  <Chip>{a.builtIn ? 'Built in' : 'Installed'}</Chip>
-                                ) : null}
-                                <span className="grow" />
-                                {a.installed ? (
-                                  <Button onClick={open}>Open</Button>
-                                ) : (
-                                  <>
-                                    <Button variant="ghost" onClick={open}>
-                                      Details
-                                    </Button>
-                                    <Button
-                                      variant="strong"
-                                      busy={busy?.id === a.id}
-                                      disabled={busy !== null}
-                                      onClick={() => run(a, false)}
-                                    >
-                                      {busy?.id === a.id ? 'Installing…' : 'Install'}
-                                    </Button>
-                                  </>
-                                )}
-                              </div>
-                            </article>
-                          );
-                        })}
-                    </div>
-                  </section>
+                  <AppSection key={cat} cat={cat} apps={shown.filter((a) => a.category === cat)} busy={busy} run={run} />
                 ))
               ) : (
                 <Empty>No apps match.</Empty>
@@ -119,6 +75,56 @@ export function AppStorePage() {
         }}
       </Loaded>
     </AdvancedGate>
+  );
+}
+
+const TILES = 6;
+type Change = ReturnType<typeof useAppChange>;
+type Busy = Change['busy'];
+type Run = Change['run'];
+
+/** One category of apps. Long ones stop at a few rows of tiles and ask. */
+function AppSection({ cat, apps, busy, run }: { cat: string; apps: AppState[]; busy: Busy; run: Run }) {
+  const { shown, more } = useLimit(apps, TILES);
+  return (
+    <section className="app-section">
+      <h2 className="app-cat">{cat}</h2>
+      <div className="app-grid">
+        {shown.map((a) => {
+          const open = () => navigate(appPageId(a));
+          return (
+            <article className="app-tile" key={a.id}>
+              <AppIcon id={a.id} />
+              <div className="app-text">
+                <h3>{a.name}</h3>
+                <p>{a.summary}</p>
+              </div>
+              <div className="app-actions">
+                {a.running === true ? (
+                  <Chip tone="ok">Running</Chip>
+                ) : a.installed ? (
+                  <Chip>{a.builtIn ? 'Built in' : 'Installed'}</Chip>
+                ) : null}
+                <span className="grow" />
+                {a.installed ? (
+                  <Button onClick={open}>Open</Button>
+                ) : (
+                  <>
+                    <Button variant="ghost" onClick={open}>
+                      Details
+                    </Button>
+                    <Button variant="strong" busy={busy?.id === a.id} disabled={busy !== null} onClick={() => run(a, false)}>
+                      {busy?.id === a.id ? 'Installing…' : 'Install'}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      {more}
+    </section>
   );
 }
 

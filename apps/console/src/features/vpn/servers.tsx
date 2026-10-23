@@ -10,6 +10,7 @@ import { saveBlob } from '../../lib/files.ts';
 import { plural } from '../../lib/format.ts';
 import { Button } from '../../ui/Button.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
+import { Searchable } from '../../ui/FilterBar.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { Row2, SelectField, SwitchRow, TextField } from '../../ui/fields.tsx';
 import { Chip, Empty, Grid, KeyValues, Note, PageHeader, Panel, ToneText } from '../../ui/Layout.tsx';
@@ -110,49 +111,53 @@ export function WireGuardPage() {
             }
           >
             {peers.data?.length ? (
-              <DataTable
-                label="Peers"
-                rows={peers.data}
-                rowKey={(p) => String(p.id)}
-                onRowClick={setShowing}
-                bulk={[
-                  {
-                    label: 'Remove',
-                    danger: true,
-                    run: async (list) => {
-                      if (
-                        !(await confirm({
-                          title: `Remove ${list.length === 1 ? list[0]?.name : plural(list.length, 'peer')}?`,
-                          body: 'Their keys stop working right away.',
-                          confirm: 'Remove',
-                        }))
-                      )
-                        return;
-                      try {
-                        await remove.mutateAsync(list.map((p) => p.id));
-                        toast('Removed');
-                      } catch (err) {
-                        toast(errorMessage(err));
-                      }
-                    },
-                  },
-                ]}
-                columns={[
-                  { key: 'name', header: 'Peer', phone: 'title', cell: (p) => <span className="name">{p.name}</span> },
-                  { key: 'addr', header: 'Address', phone: 'sub', cell: (p) => <span className="mono">{p.address}</span> },
-                  {
-                    key: 'cfg',
-                    header: '',
-                    align: 'end',
-                    phone: 'end',
-                    cell: () => (
-                      <Button variant="ghost" icon={<IconDownload size={16} />}>
-                        Config
-                      </Button>
-                    ),
-                  },
-                ]}
-              />
+              <Searchable rows={peers.data} label="Search peers" placeholder="Name or address" none="No peers match.">
+                {(hit) => (
+                  <DataTable
+                    label="Peers"
+                    rows={hit}
+                    rowKey={(p) => String(p.id)}
+                    onRowClick={setShowing}
+                    bulk={[
+                      {
+                        label: 'Remove',
+                        danger: true,
+                        run: async (list) => {
+                          if (
+                            !(await confirm({
+                              title: `Remove ${list.length === 1 ? list[0]?.name : plural(list.length, 'peer')}?`,
+                              body: 'Their keys stop working right away.',
+                              confirm: 'Remove',
+                            }))
+                          )
+                            return;
+                          try {
+                            await remove.mutateAsync(list.map((p) => p.id));
+                            toast('Removed');
+                          } catch (err) {
+                            toast(errorMessage(err));
+                          }
+                        },
+                      },
+                    ]}
+                    columns={[
+                      { key: 'name', header: 'Peer', phone: 'title', cell: (p) => <span className="name">{p.name}</span> },
+                      { key: 'addr', header: 'Address', phone: 'sub', cell: (p) => <span className="mono">{p.address}</span> },
+                      {
+                        key: 'cfg',
+                        header: '',
+                        align: 'end',
+                        phone: 'end',
+                        cell: () => (
+                          <Button variant="ghost" icon={<IconDownload size={16} />}>
+                            Config
+                          </Button>
+                        ),
+                      },
+                    ]}
+                  />
+                )}
+              </Searchable>
             ) : (
               <Empty>No peers. Add one for each phone or laptop, then scan its config into the WireGuard app.</Empty>
             )}

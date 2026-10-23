@@ -13,16 +13,18 @@ import {
   IconTag,
   IconUpload,
 } from '@tabler/icons-react';
-import { useQuery } from '@tanstack/react-query';
+import { type UseQueryResult, useQuery } from '@tanstack/react-query';
 import type { ActivityEvent, ActivityKind, Client } from '@zeeli/router-api';
 import { useState } from 'react';
 import { useClients } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
-import { navigate } from '../../app/useHashRoute.ts';
+import { hashParams, navigate } from '../../app/useHashRoute.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { ago } from '../../lib/format.ts';
 import { Button } from '../../ui/Button.tsx';
+import { FilterBar } from '../../ui/FilterBar.tsx';
 import { Segmented } from '../../ui/fields.tsx';
+import { facetOptions, matches } from '../../ui/filter.ts';
 import { Empty, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { useLimit } from '../../ui/limit.tsx';
 
@@ -66,9 +68,6 @@ const IFACE: Record<string, string> = {
 /** What happened on the network, newest first: devices, uplinks and sign-ins. */
 export default function ActivityPage() {
   const events = useQuery({ queryKey: ['activity'], queryFn: api.activity.recent, refetchInterval: 30_000 });
-  const clients = useClients().data ?? [];
-  const [filter, setFilter] = useState<Filter>('all');
-  const rows = (events.data ?? []).filter((e) => filter === 'all' || GROUP[e.kind] === filter);
   const failed = (events.data ?? []).filter((e) => e.kind === 'admin.failed').reduce((n, e) => n + e.count, 0);
 
   return (
@@ -91,31 +90,69 @@ export default function ActivityPage() {
           .
         </div>
       ) : null}
-      <Panel
-        actions={
-          <Segmented
-            label="Show"
-            value={filter}
-            onChange={setFilter}
-            options={[
-              ['all', 'Everything'],
-              ['devices', 'Devices'],
-              ['internet', 'Internet'],
-              ['security', 'Security'],
-            ]}
-          />
-        }
-      >
-        {events.isError ? (
-          <Empty>Couldn’t read the log: {errorMessage(events.error)}</Empty>
-        ) : rows.length ? (
-          <Timeline rows={rows} clients={clients} />
-        ) : (
-          <Empty>{events.isLoading ? 'Reading the log…' : 'Nothing to show yet.'}</Empty>
-        )}
-      </Panel>
+      <Log events={events} />
     </>
   );
+}
+
+const inFilter = (e: ActivityEvent, filter: Filter) => filter === 'all' || GROUP[e.kind] === filter;
+
+/** The log with its filters: what kind of event, which device, and words. `#activity?device=` opens it on one device. */
+function Log({ events: query }: { events: UseQueryResult<ActivityEvent[]> }) {
+  const events = query.data ?? [];
+  const clients = useClients().data ?? [];
+  const [filter, setFilter] = useState<Filter>('all');
+  const [q, setQ] = useState('');
+  const [device, setDevice] = useState(() => hashParams().get('device') ?? '');
+  const nameOf = (subject: string) => clients.find((c) => c.mac === subject)?.name ?? IFACE[subject] ?? subject;
+  const known = new Set(clients.map((c) => c.mac));
+  const rows = events.filter((e) => inFilter(e, filter) && (!device || e.subject === device) && matches(q, [nameOf(e.subject), e.detail]));
+  return (
+    <Panel
+      actions={
+        <Segmented
+          label="Show"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            ['all', 'Everything'],
+            ['devices', 'Devices'],
+            ['internet', 'Internet'],
+            ['security', 'Security'],
+          ]}
+        />
+      }
+    >
+      <FilterBar
+        search={{ value: q, onChange: setQ, placeholder: 'Search the log', label: 'Search the activity log' }}
+        facets={[
+          {
+            label: 'Device',
+            value: device,
+            onChange: setDevice,
+            options: facetOptions(
+              events.filter((e) => known.has(e.subject)),
+              (e) => e.subject,
+              nameOf,
+            ),
+          },
+        ]}
+        shown={rows.length}
+        total={events.length}
+        onClear={() => {
+          setQ('');
+          setDevice('');
+        }}
+      />
+      <LogBody query={query} rows={rows} clients={clients} />
+    </Panel>
+  );
+}
+
+function LogBody({ query, rows, clients }: { query: UseQueryResult<ActivityEvent[]>; rows: ActivityEvent[]; clients: Client[] }) {
+  if (query.isError) return <Empty>Couldn’t read the log: {errorMessage(query.error)}</Empty>;
+  if (rows.length) return <Timeline rows={rows} clients={clients} />;
+  return <Empty>{query.isLoading ? 'Reading the log…' : query.data?.length ? 'No events match.' : 'Nothing to show yet.'}</Empty>;
 }
 
 function Timeline({ rows, clients }: { rows: ActivityEvent[]; clients: Client[] }) {

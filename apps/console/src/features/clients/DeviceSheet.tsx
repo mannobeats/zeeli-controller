@@ -3,6 +3,7 @@ import { type Client, type DeviceClass, inSubnet, KIB_PER_MBPS } from '@zeeli/ro
 import { type ReactNode, useState } from 'react';
 import { useClients, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
+import { navigate } from '../../app/useHashRoute.ts';
 import { DEVICE_CLASS_LABELS } from '../../lib/devices.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { ago, bytes, rate } from '../../lib/format.ts';
@@ -159,13 +160,16 @@ function Details({ client, onForget }: { client: Client; onForget: (c: Client) =
     <section>
       <h3>Details</h3>
       <KeyValues rows={rows} />
-      {client.online ? null : (
-        <div className="section-actions">
+      <div className="section-actions">
+        <Button variant="ghost" onClick={() => navigate(`activity?device=${encodeURIComponent(client.mac)}`)}>
+          See its activity
+        </Button>
+        {client.online ? null : (
           <Button variant="ghost" onClick={() => onForget(client)}>
             Forget this device
           </Button>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }
