@@ -21,9 +21,9 @@ return {
 			call: (request) => stats.top(request.args),
 		},
 
-		/** What happened, newest first: since (epoch seconds), limit, and which kinds. */
+		/** What happened, newest first: since (epoch seconds), limit, which kinds, and optionally one device (MAC) or uplink. */
 		events: {
-			args: { since: '0', limit: '100', kinds: [] },
+			args: { since: '0', limit: '100', kinds: [], subject: 'AA:BB:CC:DD:EE:FF' },
 			call: (request) => stats.events(request.args),
 		},
 

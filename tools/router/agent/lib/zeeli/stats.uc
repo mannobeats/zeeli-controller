@@ -231,9 +231,16 @@ function events(args) {
 	if (since == null || limit == null) return fail('since and limit must be whole numbers.');
 	const kinds = args.kinds ?? [];
 	if (type(kinds) != 'array' || length(filter(kinds, (k) => !(k in EVENT_KINDS))) > 0) return fail('Unknown event kind.');
+	// one device or uplink; a MAC is compared in upper case, as events store it
+	let subject = args.subject;
+	if (subject != null && subject != '') {
+		if (type(subject) != 'string' || !(valid.mac(subject) || match(subject, /^[A-Za-z0-9_]{1,32}$/))) return fail('That isn’t a device or uplink.');
+		if (valid.mac(subject)) subject = uc(subject);
+	}
 	const out = [];
 	for (let e in reverse(readEvents())) {
 		if (e.t <= since && since > 0) continue;
+		if (subject && e.subject != subject) continue;
 		if (length(kinds) && !(e.kind in kinds)) continue;
 		push(out, e);
 		if (length(out) >= limit) break;

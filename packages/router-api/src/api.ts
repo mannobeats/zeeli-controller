@@ -10,6 +10,7 @@ import { networkExtras } from './domain/network-extras.ts';
 import { networks } from './domain/networks.ts';
 import { openwrt } from './domain/openwrt.ts';
 import { security } from './domain/security.ts';
+import { stats } from './domain/stats.ts';
 import { system } from './domain/system.ts';
 import { traffic } from './domain/traffic.ts';
 import { vpn } from './domain/vpn.ts';
@@ -38,6 +39,7 @@ export function createRouterApi(transport: Transport) {
     apps: apps(transport, ow),
     activity: activity(transport),
     agent: agent(transport),
+    stats: stats(transport),
   };
 }
 

@@ -87,12 +87,24 @@ test('events come newest first and can be narrowed by time, count and kind', () 
 	eq(map(call('events', { since: `${T0 + 20}` }).events, (e) => e.id), [5, 4]);
 	eq(map(call('events', { kinds: ['wan.down', 'wan.up'] }).events, (e) => e.kind), ['wan.up', 'wan.down']);
 	ok(call('events', { kinds: ['wan.explode'] }).error, 'unknown kind');
+	ok(call('events', { subject: '../x' }).error, 'subject is not a device or uplink');
+	ok(call('events', { subject: ['x'] }).error, 'subject is not a string');
 	ok(call('events', { limit: '0' }).error, 'limit too small');
 	ok(call('events', { limit: '99999' }).error, 'limit too large');
 	ok(call('events', { since: '-5' }).error, 'since is not a time');
 	// a half-written line at the end of the file is skipped, not fatal
 	writefile(`${stats.dir()}/events.jsonl`, readfile(`${stats.dir()}/events.jsonl`) + '{"id":6,"t":1');
 	eq(length(call('events').events), 5);
+});
+
+test('events can be narrowed to one device, whichever way its MAC is written', () => {
+	fresh();
+	stats.addEvent({ id: 1, t: T0, kind: 'device.joined', subject: MAC, name: 'Laptop', value: null, alert: false });
+	stats.addEvent({ id: 2, t: T0 + 1, kind: 'device.left', subject: 'AA:BB:CC:00:00:02', name: 'Phone', value: null, alert: false });
+	stats.addEvent({ id: 3, t: T0 + 2, kind: 'wan.down', subject: 'wan', name: '', value: null, alert: true });
+	eq(map(call('events', { subject: 'aa:bb:cc:00:00:01' }).events, (e) => e.id), [1]);
+	eq(map(call('events', { subject: 'wan' }).events, (e) => e.id), [3]);
+	eq(length(call('events', { subject: '' }).events), 3);
 });
 
 test('alerts: unread ones come back until acknowledged, one at a time or all at once', () => {

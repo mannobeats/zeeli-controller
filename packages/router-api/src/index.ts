@@ -10,6 +10,7 @@ export * from './domain/network-extras.ts';
 export * from './domain/networks.ts';
 export * from './domain/openwrt.ts';
 export * from './domain/security.ts';
+export * from './domain/stats.ts';
 export * from './domain/system.ts';
 export * from './domain/traffic.ts';
 export * from './domain/vpn.ts';

@@ -18,6 +18,7 @@ import { DropdownMenu, Tooltip } from 'radix-ui';
 import { type ReactNode, useState } from 'react';
 import { useClients, useInfo, useStatus } from '../api/queries.ts';
 import { isDemo } from '../api/router.ts';
+import { AlertsBell } from '../features/alerts/AlertsBell.tsx';
 import { UpdateNotice } from '../features/system/ConsoleUpdate.tsx';
 import { VERSION } from '../features/system/console-release.ts';
 import { duration, rateText } from '../lib/format.ts';
@@ -102,6 +103,7 @@ function TopBar({ onSearch, onSignOut }: { onSearch: () => void; onSignOut: () =
           <span>Search</span>
           <kbd>⌘K</kbd>
         </button>
+        <AlertsBell />
         <ThemeButton />
         <AccountMenu info={info} onSignOut={onSignOut} />
       </div>
