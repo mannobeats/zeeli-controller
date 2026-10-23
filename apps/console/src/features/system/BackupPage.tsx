@@ -13,6 +13,7 @@ import { DataTable } from '../../ui/DataTable.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { TextField } from '../../ui/fields.tsx';
 import { Chip, Note, PageHeader, Panel } from '../../ui/Layout.tsx';
+import { useLimit } from '../../ui/limit.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
 
 const when = (t: number) => new Date(t * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -263,29 +264,39 @@ function TakeSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** The config files that differ, a few at a time: a snapshot can touch dozens. */
+function ChangedFiles({ files }: { files: SnapshotChange[] }) {
+  const { shown, more } = useLimit(files, 10);
+  return (
+    <>
+      {shown.map((f) => (
+        <div className="group" key={f.name}>
+          <p>
+            <b>{f.name}</b> <Chip tone={f.change === 'changed' ? undefined : 'warn'}>{CHANGE[f.change]}</Chip>
+          </p>
+          {f.sections.length ? (
+            <ul className="release-notes">
+              {f.sections.map((s) => (
+                <li key={s.section}>
+                  {s.section} {s.change === 'changed' ? `(${s.options.join(', ')})` : `(${CHANGE[s.change]})`}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ))}
+      {more}
+    </>
+  );
+}
+
 function ChangesSheet({ snapshot, onClose }: { snapshot: Snapshot; onClose: () => void }) {
   const diff = useQuery({ queryKey: ['snapshot-diff', snapshot.id], queryFn: () => api.safety.backup.snapshots.diff(snapshot.id) });
   let body: ReactNode;
   if (diff.isError) body = <p className="form-error">{errorMessage(diff.error)}</p>;
   else if (!diff.data) body = <Note>Comparing…</Note>;
   else if (!diff.data.length) body = <Note>The settings are the same as in this snapshot.</Note>;
-  else
-    body = diff.data.map((f) => (
-      <div className="group" key={f.name}>
-        <p>
-          <b>{f.name}</b> <Chip tone={f.change === 'changed' ? undefined : 'warn'}>{CHANGE[f.change]}</Chip>
-        </p>
-        {f.sections.length ? (
-          <ul className="release-notes">
-            {f.sections.map((s) => (
-              <li key={s.section}>
-                {s.section} {s.change === 'changed' ? `(${s.options.join(', ')})` : `(${CHANGE[s.change]})`}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    ));
+  else body = <ChangedFiles files={diff.data} />;
   return (
     <Sheet
       open

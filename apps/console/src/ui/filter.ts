@@ -38,3 +38,9 @@ export function matches(needle: string, fields: (string | null | undefined)[]): 
     .filter(Boolean)
     .every((w) => hay.includes(w));
 }
+
+/** Every plain value on a row as search text, for tables where any column is worth searching. */
+export const textOf = (row: object): string[] =>
+  Object.values(row)
+    .filter((v) => typeof v === 'string' || typeof v === 'number')
+    .map(String);

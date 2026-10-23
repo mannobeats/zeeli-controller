@@ -11,6 +11,7 @@ import { Button } from '../../ui/Button.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { Segmented } from '../../ui/fields.tsx';
+import { matches } from '../../ui/filter.ts';
 import { Chip, Empty, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 
@@ -73,7 +74,7 @@ function PackagesBody() {
     };
   }, [installed.data, available.data]);
 
-  const all = lists[view].filter((p) => !needle || p.hay.includes(needle));
+  const all = lists[view].filter((p) => matches(needle, [p.hay]));
   const pending = write.isPending ? write.variables : undefined;
 
   async function act(change: Change, pkg: Row) {

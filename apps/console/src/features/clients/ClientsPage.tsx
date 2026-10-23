@@ -1,5 +1,6 @@
 import { IconSearch } from '@tabler/icons-react';
-import type { Client } from '@zeeli/router-api';
+import { useQuery } from '@tanstack/react-query';
+import { type Client, inSubnet, type Network } from '@zeeli/router-api';
 import { useState } from 'react';
 import { useClients, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
@@ -10,6 +11,7 @@ import { ago, bytes, plural, rateText } from '../../lib/format.ts';
 import { DataTable } from '../../ui/DataTable.tsx';
 import { DeviceIcon, Swatch } from '../../ui/DeviceIcon.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
+import { matches } from '../../ui/filter.ts';
 import { Chip, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { SectionPanel } from '../../ui/SectionPanel.tsx';
 import { PolicyNote } from '../policies/AgentNote.tsx';
@@ -78,6 +80,8 @@ export default function ClientsPage() {
   const [status, setStatus] = useState<Status>('all');
   const [cats, setCats] = useState<Set<Category>>(() => new Set());
   const [q, setQ] = useState('');
+  const [net, setNet] = useState('');
+  const networks = useQuery({ queryKey: ['networks'], queryFn: api.networks.list }).data ?? [];
   const [open, setOpen] = useState<string | null>(() => hashParams().get('device'));
   const { setBlocked, forgetAll } = useClientActions();
 
@@ -88,7 +92,8 @@ export default function ClientsPage() {
   const rows = all
     .filter(statusFilter)
     .filter(inCat)
-    .filter((c) => !needle || [c.name, c.ip, c.mac].some((v) => v.toLowerCase().includes(needle)))
+    .filter((c) => !net || onNetwork(networks, net, c))
+    .filter((c) => matches(q, [c.name, c.hostname, c.ip, c.mac]))
     .sort((a, b) => Number(b.online) - Number(a.online) || b.rx + b.tx - (a.rx + a.tx) || b.since - a.since);
   const max = Math.max(1, ...rows.map((c) => c.rx));
   const current = all.find((c) => c.mac === open) ?? null;
@@ -107,6 +112,7 @@ export default function ClientsPage() {
         setQ={setQ}
         inCat={inCat}
         statusFilter={statusFilter}
+        networks={{ list: networks, value: net, onChange: setNet }}
       />
       <Panel>
         {rows.length ? (
@@ -172,7 +178,7 @@ export default function ClientsPage() {
             ]}
           />
         ) : (
-          <NoClients needle={needle} q={q} status={status} filtered={cats.size > 0} clear={() => setQ('')} />
+          <NoClients needle={needle} q={q} status={status} filtered={cats.size > 0 || net !== ''} clear={() => setQ('')} />
         )}
       </Panel>
       <PolicyNote>Blocking here is on or off. For bedtimes, timed pauses and whole groups of devices, see</PolicyNote>
@@ -196,9 +202,15 @@ interface FilterProps {
   setQ: (q: string) => void;
   inCat: (c: Client) => boolean;
   statusFilter: (c: Client) => boolean;
+  networks: { list: Network[]; value: string; onChange: (id: string) => void };
 }
 
-function ClientFilters({ all, status, setStatus, cats, setCats, q, setQ, inCat, statusFilter }: FilterProps) {
+const onNetwork = (list: Network[], id: string, c: Client) => {
+  const n = list.find((x) => x.id === id);
+  return n ? inSubnet(c.ip, n.ip, n.netmask) : false;
+};
+
+function ClientFilters({ all, status, setStatus, cats, setCats, q, setQ, inCat, statusFilter, networks }: FilterProps) {
   return (
     <SectionPanel label="Filters">
       <label className="search">
@@ -231,7 +243,32 @@ function ClientFilters({ all, status, setStatus, cats, setCats, q, setQ, inCat, 
           <span className="n">{all.filter((c) => categoryOf(c) === k).filter(statusFilter).length}</span>
         </label>
       ))}
+      <NetworkFilter all={all.filter(statusFilter).filter(inCat)} {...networks} />
     </SectionPanel>
+  );
+}
+
+/** Which network a device is on: one at a time, and only offered when the router has more than one. */
+function NetworkFilter({ all, list, value, onChange }: { all: Client[]; list: Network[]; value: string; onChange: (id: string) => void }) {
+  if (list.length < 2) return null;
+  return (
+    <>
+      <div className="ctx-sub">Network</div>
+      <div className="ctx-list">
+        {[{ id: '', label: 'Any network' }, ...list].map((n) => (
+          <button
+            key={n.id}
+            type="button"
+            className="ctx-item"
+            aria-current={value === n.id ? 'page' : undefined}
+            onClick={() => onChange(n.id)}
+          >
+            {n.label}
+            <span className="n">{n.id ? all.filter((c) => onNetwork(list, n.id, c)).length : all.length}</span>
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 

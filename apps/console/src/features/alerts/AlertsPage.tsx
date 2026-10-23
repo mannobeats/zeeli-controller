@@ -1,14 +1,18 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { EVENT_KINDS, type HistoryEvent, type HistoryEventKind, type HistorySettings } from '@zeeli/router-api';
+import { useState } from 'react';
 import { useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { navigate } from '../../app/useHashRoute.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { ago } from '../../lib/format.ts';
 import { Button } from '../../ui/Button.tsx';
+import { FilterBar } from '../../ui/FilterBar.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { SwitchRow, TextField } from '../../ui/fields.tsx';
+import { facetOptions, matches } from '../../ui/filter.ts';
 import { Empty, PageHeader, Panel } from '../../ui/Layout.tsx';
+import { useLimit } from '../../ui/limit.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
 import { useDeviceName } from '../dns/names.ts';
 import { HistoryGate } from '../history/parts.tsx';
@@ -42,77 +46,128 @@ export default function AlertsPage() {
         }
       />
       <HistoryGate>
-        <Unread />
-        <Earlier />
+        <Inbox />
         <Settings />
       </HistoryGate>
     </>
   );
 }
 
-function EventList({ events, onAck }: { events: HistoryEvent[]; onAck?: (e: HistoryEvent) => void }) {
+function EventList({ events, onAck, step }: { events: HistoryEvent[]; onAck?: (e: HistoryEvent) => void; step: number }) {
   const nameOf = useDeviceName();
+  const { shown, more } = useLimit(events, step);
   return (
-    <ol className="timeline">
-      {events.map((e) => {
-        const { icon: Icon, tone } = EVENT_LOOK[e.kind];
-        return (
-          <li key={e.id} className={`tl-${tone}`}>
-            <span className="tl-dot">
-              <Icon size={16} stroke={1.75} />
-            </span>
-            <div className="tl-body">
-              <button type="button" className="tl-link" onClick={() => navigate(eventLink(e))}>
-                {eventText(e, nameOf)}
-              </button>
-            </div>
-            <span className="tl-end">
-              <time className="tl-time" dateTime={e.time.toISOString()} title={e.time.toLocaleString()}>
-                {ago(e.time.getTime() / 1000)}
-              </time>
-              {onAck ? (
-                <Button variant="ghost" onClick={() => onAck(e)} aria-label={`Acknowledge: ${eventText(e, nameOf)}`}>
-                  Acknowledge
-                </Button>
-              ) : null}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
+    <>
+      <ol className="timeline">
+        {shown.map((e) => {
+          const { icon: Icon, tone } = EVENT_LOOK[e.kind];
+          return (
+            <li key={e.id} className={`tl-${tone}`}>
+              <span className="tl-dot">
+                <Icon size={16} stroke={1.75} />
+              </span>
+              <div className="tl-body">
+                <button type="button" className="tl-link" onClick={() => navigate(eventLink(e))}>
+                  {eventText(e, nameOf)}
+                </button>
+              </div>
+              <span className="tl-end">
+                <time className="tl-time" dateTime={e.time.toISOString()} title={e.time.toLocaleString()}>
+                  {ago(e.time.getTime() / 1000)}
+                </time>
+                {onAck ? (
+                  <Button variant="ghost" onClick={() => onAck(e)} aria-label={`Acknowledge: ${eventText(e, nameOf)}`}>
+                    Acknowledge
+                  </Button>
+                ) : null}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      {more}
+    </>
   );
 }
 
-function Unread() {
-  const { toast } = useFeedback();
-  const alerts = useAlerts();
-  const ack = useWrite((id: number) => api.stats.acknowledge([id]), [['alerts']]);
-  return (
-    <Panel title="Unread">
-      {alerts.data?.alerts.length ? (
-        <EventList events={alerts.data.alerts} onAck={(e) => ack.mutateAsync(e.id).catch((err) => toast(errorMessage(err)))} />
-      ) : (
-        <Empty>{alerts.isLoading ? 'Reading alerts…' : 'Nothing needs your attention.'}</Empty>
-      )}
-    </Panel>
-  );
-}
-
-/** Alerts already acknowledged, from the router’s record of events. */
-function Earlier() {
+/** Unread alerts and the ones already acknowledged, narrowed together by words, kind and device. */
+function Inbox() {
   const alerts = useAlerts().data;
+  const nameOf = useDeviceName();
   const on = alerts?.on ?? [];
   const recent = useQuery({
     queryKey: ['alerts-earlier', on],
     queryFn: () => api.stats.events({ kinds: on, limit: 40 }),
     enabled: on.length > 0,
   });
+  const [q, setQ] = useState('');
+  const [kind, setKind] = useState('');
+  const [device, setDevice] = useState('');
   const unreadIds = new Set(alerts?.alerts.map((a) => a.id));
-  const earlier = (recent.data ?? []).filter((e) => e.alert && !unreadIds.has(e.id)).slice(0, 15);
-  if (!earlier.length) return null;
+  const unread = alerts?.alerts ?? [];
+  const earlier = (recent.data ?? []).filter((e) => e.alert && !unreadIds.has(e.id));
+  const all = [...unread, ...earlier];
+  const keep = (e: HistoryEvent) =>
+    (!kind || e.kind === kind) && (!device || e.subject === device) && matches(q, [eventText(e, nameOf), e.subject]);
+  const [mine, past] = [unread.filter(keep), earlier.filter(keep)];
   return (
-    <Panel className="section" title="Earlier" note="Already acknowledged">
-      <EventList events={earlier} />
+    <>
+      {all.length ? (
+        <Panel>
+          <FilterBar
+            search={{ value: q, onChange: setQ, placeholder: 'Device or event', label: 'Search alerts' }}
+            facets={[
+              {
+                label: 'Event',
+                value: kind,
+                onChange: setKind,
+                options: facetOptions(
+                  all,
+                  (e) => e.kind,
+                  (k) => EVENT_KINDS[k as HistoryEventKind],
+                ),
+              },
+              {
+                label: 'Device',
+                value: device,
+                onChange: setDevice,
+                options: facetOptions(
+                  all.filter((e) => e.kind.startsWith('device.')),
+                  (e) => e.subject,
+                  nameOf,
+                ),
+              },
+            ]}
+            shown={mine.length + past.length}
+            total={all.length}
+            onClear={() => {
+              setQ('');
+              setKind('');
+              setDevice('');
+            }}
+          />
+        </Panel>
+      ) : null}
+      <Unread alerts={mine} filtered={unread.length > 0} loading={!alerts} />
+      {past.length ? (
+        <Panel className="section" title="Earlier" note="Already acknowledged">
+          <EventList events={past} step={10} />
+        </Panel>
+      ) : null}
+    </>
+  );
+}
+
+function Unread({ alerts, filtered, loading }: { alerts: HistoryEvent[]; filtered: boolean; loading: boolean }) {
+  const { toast } = useFeedback();
+  const ack = useWrite((id: number) => api.stats.acknowledge([id]), [['alerts']]);
+  return (
+    <Panel title="Unread">
+      {alerts.length ? (
+        <EventList events={alerts} step={15} onAck={(e) => ack.mutateAsync(e.id).catch((err) => toast(errorMessage(err)))} />
+      ) : (
+        <Empty>{loading ? 'Reading alerts…' : filtered ? 'No unread alerts match.' : 'Nothing needs your attention.'}</Empty>
+      )}
     </Panel>
   );
 }

@@ -89,9 +89,7 @@ export function TrafficPage() {
           <Panel className="section" title="By app" note={usage.data ? `${usage.data.apps.length} apps` : undefined}>
             {usage.data?.apps.length ? (
               <BarTable
-                rows={usage.data.apps
-                  .slice(0, 50)
-                  .map((a) => ({ key: a.name, name: a.name, down: a.download, up: a.upload, total: a.total }))}
+                rows={usage.data.apps.map((a) => ({ key: a.name, name: a.name, down: a.download, up: a.upload, total: a.total }))}
                 label="Traffic by app"
               />
             ) : (
@@ -103,9 +101,7 @@ export function TrafficPage() {
               {byDevice.length ? (
                 <BarTable
                   label="Traffic by device"
-                  rows={byDevice
-                    .slice(0, 50)
-                    .map((c) => ({ key: c.mac, name: c.name, down: c.totalRx, up: c.totalTx, total: c.totalRx + c.totalTx }))}
+                  rows={byDevice.map((c) => ({ key: c.mac, name: c.name, down: c.totalRx, up: c.totalTx, total: c.totalRx + c.totalTx }))}
                   onRow={(mac) => navigate(`clients?device=${encodeURIComponent(mac)}`)}
                 />
               ) : (

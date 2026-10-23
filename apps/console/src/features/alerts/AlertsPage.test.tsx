@@ -41,6 +41,20 @@ test('alerts are listed with the new device and the outage, and each can be ackn
   await waitFor(async () => expect(await unread()).toBe(before - 1));
 });
 
+test('alerts can be narrowed by event, searched, and brought back with Clear', async () => {
+  const user = await renderPage(<AlertsPage />);
+  const list = within(await screen.findByRole('heading', { name: 'Unread', level: 2 }).then((h) => h.closest('section') as HTMLElement));
+  await list.findByText(/is new on your network/);
+  const before = list.getAllByRole('listitem').length;
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Event' }), 'device.new');
+  expect(list.getAllByRole('listitem').length).toBeLessThan(before);
+  expect(list.queryByText('The router switched from Ethernet 1 to Repeater')).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Clear' }));
+  expect(list.getAllByRole('listitem')).toHaveLength(before);
+  await user.type(screen.getByRole('searchbox', { name: 'Search alerts' }), 'no-such-thing');
+  expect(await screen.findByText('No unread alerts match.')).toBeTruthy();
+});
+
 test('acknowledging everything clears the list', async () => {
   const user = await renderPage(<AlertsPage />);
   const all = await screen.findByRole('button', { name: 'Acknowledge all' });

@@ -22,6 +22,7 @@ import { AdvancedGate } from '../../ui/AdvancedGate.tsx';
 import { Button, IconButton } from '../../ui/Button.tsx';
 import { stateColumn } from '../../ui/columns.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
+import { Searchable } from '../../ui/FilterBar.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { ChipPicker, Row2, SelectField, TextField } from '../../ui/fields.tsx';
 import { Address, Chip, Empty, Note, PageHeader, Panel, Stack, ToneText } from '../../ui/Layout.tsx';
@@ -328,6 +329,7 @@ function DhcpBody() {
       {({ leases, reservations, networks, at }) => {
         const name = (l: { mac: string; hostname: string }) =>
           clients.find((c) => c.mac === l.mac)?.name || l.hostname || leases.hints[l.mac]?.name || 'Unnamed device';
+        const netOf = (ip: string) => networks.find((n) => inSubnet(ip, n.ip, n.netmask))?.label ?? '';
         const isReserved = (mac: string) => reservations.some((r) => r.mac === mac);
         const v4 = [...leases.v4].sort((a, b) => a.ip.localeCompare(b.ip, undefined, { numeric: true }));
         const run = async (rows: typeof v4) => {
@@ -352,33 +354,43 @@ function DhcpBody() {
             />
             <Panel>
               {v4.length ? (
-                <DataTable
-                  label="IPv4 leases"
+                <Searchable
                   rows={v4}
-                  rowKey={(l) => l.mac}
-                  bulk={[{ label: 'Reserve these addresses', run, when: (rows) => rows.some((l) => !isReserved(l.mac)) }]}
-                  columns={[
-                    { key: 'dev', header: 'Device', phone: 'title', cell: (l) => <span className="name">{name(l)}</span> },
-                    { key: 'ip', header: 'IP address', phone: 'sub', cell: (l) => <span className="mono">{l.ip}</span> },
-                    { key: 'mac', header: 'MAC', cell: (l) => <span className="mono muted">{l.mac}</span> },
-                    { key: 'net', header: 'Network', cell: (l) => networks.find((n) => inSubnet(l.ip, n.ip, n.netmask))?.label ?? '' },
-                    { key: 'ends', header: 'Lease ends in', cell: (l) => <span className="num">{left(l.expires, at)}</span> },
-                    {
-                      key: 'res',
-                      header: '',
-                      align: 'end',
-                      phone: 'end',
-                      cell: (l) =>
-                        isReserved(l.mac) ? (
-                          <Chip>Reserved</Chip>
-                        ) : (
-                          <Button variant="ghost" onClick={() => run([l])}>
-                            Reserve
-                          </Button>
-                        ),
-                    },
-                  ]}
-                />
+                  label="Search IPv4 leases"
+                  placeholder="Device, address or network"
+                  none="No leases match."
+                  fields={(l) => [name(l), l.ip, l.mac, netOf(l.ip)]}
+                >
+                  {(hit) => (
+                    <DataTable
+                      label="IPv4 leases"
+                      rows={hit}
+                      rowKey={(l) => l.mac}
+                      bulk={[{ label: 'Reserve these addresses', run, when: (rows) => rows.some((l) => !isReserved(l.mac)) }]}
+                      columns={[
+                        { key: 'dev', header: 'Device', phone: 'title', cell: (l) => <span className="name">{name(l)}</span> },
+                        { key: 'ip', header: 'IP address', phone: 'sub', cell: (l) => <span className="mono">{l.ip}</span> },
+                        { key: 'mac', header: 'MAC', cell: (l) => <span className="mono muted">{l.mac}</span> },
+                        { key: 'net', header: 'Network', cell: (l) => netOf(l.ip) },
+                        { key: 'ends', header: 'Lease ends in', cell: (l) => <span className="num">{left(l.expires, at)}</span> },
+                        {
+                          key: 'res',
+                          header: '',
+                          align: 'end',
+                          phone: 'end',
+                          cell: (l) =>
+                            isReserved(l.mac) ? (
+                              <Chip>Reserved</Chip>
+                            ) : (
+                              <Button variant="ghost" onClick={() => run([l])}>
+                                Reserve
+                              </Button>
+                            ),
+                        },
+                      ]}
+                    />
+                  )}
+                </Searchable>
               ) : (
                 <Empty>No active leases.</Empty>
               )}

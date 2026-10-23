@@ -9,6 +9,7 @@ import { plural } from '../../lib/format.ts';
 import { AdvancedGate } from '../../ui/AdvancedGate.tsx';
 import { Button } from '../../ui/Button.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
+import { Searchable } from '../../ui/FilterBar.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { Switch } from '../../ui/fields.tsx';
 import { PageHeader, Panel } from '../../ui/Layout.tsx';
@@ -113,39 +114,43 @@ function FirewallBody() {
             </div>
           </Panel>
           <Panel className="section" title="Traffic rules" note={`${plural(rules.length, 'rule')}, checked top to bottom`}>
-            <DataTable
-              label="Traffic rules"
-              rows={rules}
-              rowKey={(r) => r.id}
-              onRowClick={setEditing}
-              rowClass={(r) => (r.enabled ? undefined : 'off')}
-              bulk={[
-                { label: 'Turn on', run: (l) => setOn(l, true), when: (l) => editable(l).some((r) => !r.enabled) },
-                { label: 'Turn off', run: (l) => setOn(l, false), when: (l) => editable(l).some((r) => r.enabled) },
-                { label: 'Delete', danger: true, run: removeRules, when: (l) => editable(l).length > 0 },
-              ]}
-              columns={[
-                ...ruleColumns<FirewallRule>((r) => r.origin),
-                {
-                  key: 'on',
-                  header: 'On',
-                  align: 'end',
-                  phone: 'end',
-                  cell: (r) => (
-                    // biome-ignore lint/a11y/noStaticElementInteractions: keeps the row from opening when the switch is used
-                    // biome-ignore lint/a11y/useKeyWithClickEvents: the switch inside handles keys
-                    <span onClick={(e) => e.stopPropagation()}>
-                      <Switch
-                        checked={r.enabled}
-                        label={`${r.name} on`}
-                        disabled={r.origin === 'service' || enable.isPending}
-                        onChange={(on) => setOn([r], on)}
-                      />
-                    </span>
-                  ),
-                },
-              ]}
-            />
+            <Searchable rows={rules} label="Search traffic rules" placeholder="Name, port or zone" none="No rules match.">
+              {(hit) => (
+                <DataTable
+                  label="Traffic rules"
+                  rows={hit}
+                  rowKey={(r) => r.id}
+                  onRowClick={setEditing}
+                  rowClass={(r) => (r.enabled ? undefined : 'off')}
+                  bulk={[
+                    { label: 'Turn on', run: (l) => setOn(l, true), when: (l) => editable(l).some((r) => !r.enabled) },
+                    { label: 'Turn off', run: (l) => setOn(l, false), when: (l) => editable(l).some((r) => r.enabled) },
+                    { label: 'Delete', danger: true, run: removeRules, when: (l) => editable(l).length > 0 },
+                  ]}
+                  columns={[
+                    ...ruleColumns<FirewallRule>((r) => r.origin),
+                    {
+                      key: 'on',
+                      header: 'On',
+                      align: 'end',
+                      phone: 'end',
+                      cell: (r) => (
+                        // biome-ignore lint/a11y/noStaticElementInteractions: keeps the row from opening when the switch is used
+                        // biome-ignore lint/a11y/useKeyWithClickEvents: the switch inside handles keys
+                        <span onClick={(e) => e.stopPropagation()}>
+                          <Switch
+                            checked={r.enabled}
+                            label={`${r.name} on`}
+                            disabled={r.origin === 'service' || enable.isPending}
+                            onChange={(on) => setOn([r], on)}
+                          />
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
+              )}
+            </Searchable>
           </Panel>
           {editing ? (
             <RuleSheet

@@ -1,5 +1,7 @@
 import { IconSearch, IconX } from '@tabler/icons-react';
-import type { Facet } from './filter.ts';
+import { type ReactNode, useState } from 'react';
+import { type Facet, matches, textOf } from './filter.ts';
+import { Empty } from './Layout.tsx';
 
 /**
  * One filter row for a long list: a search, a few facets as menus, how many rows match and a way
@@ -63,5 +65,56 @@ export function FilterBar({
         </span>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A search box over one list. The bar only shows once the list is long enough to need it (a filter
+ * over three rows is noise), and stays while a search is typed. `rows` is what matches.
+ */
+function useSearch<T extends object>(
+  all: T[],
+  search: { label: string; placeholder: string; fields?: (row: T) => (string | null | undefined)[] },
+  min = 8,
+) {
+  const [q, setQ] = useState('');
+  const rows = q.trim() ? all.filter((r) => matches(q, search.fields?.(r) ?? textOf(r))) : all;
+  const bar =
+    all.length >= min || q ? (
+      <FilterBar
+        search={{ value: q, onChange: setQ, label: search.label, placeholder: search.placeholder }}
+        shown={rows.length}
+        total={all.length}
+        onClear={() => setQ('')}
+      />
+    ) : null;
+  return { rows, bar };
+}
+
+/** `useSearch` around a table or list: the bar above, the rows that match inside, "none match" when nothing does. */
+export function Searchable<T extends object>({
+  rows: all,
+  label,
+  placeholder,
+  none,
+  fields,
+  min,
+  children,
+}: {
+  rows: T[];
+  label: string;
+  placeholder: string;
+  /** What to say when the search hides every row: "No rules match." */
+  none: string;
+  fields?: (row: T) => (string | null | undefined)[];
+  min?: number;
+  children: (rows: T[]) => ReactNode;
+}) {
+  const { rows, bar } = useSearch(all, { label, placeholder, fields }, min);
+  return (
+    <>
+      {bar}
+      {rows.length ? children(rows) : <Empty>{none}</Empty>}
+    </>
   );
 }
