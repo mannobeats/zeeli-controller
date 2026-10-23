@@ -74,17 +74,17 @@ Each `test/*.test.uc` runs on a fresh copy of `test/fixtures/be9300`: the GL-BE9
 
 ### The API
 
-| Method                            | Arguments                                                                                      | Result                                                                                     |
-| --------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `list`                            | none                                                                                           | `networks`, `radios`, `lanNetworks`, `internal`, `pending`. Never a key: `hasKey` instead. |
-| `reveal`                          | `id`                                                                                           | `{ password }` of one network the agent made                                               |
-| `create`                          | `ssid`, `password`, `bands`, `network`, `security`, `hidden`, `isolate`, `options`, `schedule` | `{ id, sections, pending }`                                                                |
-| `update`                          | `id` and any of the above except `schedule`                                                    | `{ id, pending }`. No password keeps the current one.                                      |
-| `delete`                          | `id`                                                                                           | `{ pending }`                                                                              |
-| `set_enabled`                     | `id`, `enabled`                                                                                | `{ pending }`                                                                              |
-| `apply`                           | none                                                                                           | `{ applied }`                                                                              |
-| `set_schedule` / `clear_schedule` | `id`, `enabled`, `days`, `off`, `on` / `id`                                                    | `{ schedule }` / `{ pending }`                                                             |
-| `tick`                            | none                                                                                           | `{ changed }`. Enforces schedules; the service below calls it.                             |
+| Method                            | Arguments                                                                                             | Result                                                                                                                           |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `list`                            | none                                                                                                  | `networks`, `radios`, `lanNetworks`, `mlo`, `restartNeeded`, `restartFor`, `internal`, `pending`. Never a key: `hasKey` instead. |
+| `reveal`                          | `id`                                                                                                  | `{ password }` of one network the agent made                                                                                     |
+| `create`                          | `ssid`, `password`, `bands`, `network`, `security`, `hidden`, `isolate`, `options`, `schedule`, `mlo` | `{ id, sections, pending }`                                                                                                      |
+| `update`                          | `id` and any of the above except `schedule`                                                           | `{ id, pending }`. No password keeps the current one.                                                                            |
+| `delete`                          | `id`                                                                                                  | `{ pending }`, or `{ restartNeeded }` for a multi-link network                                                                   |
+| `set_enabled`                     | `id`, `enabled`                                                                                       | `{ pending }`                                                                                                                    |
+| `apply`                           | none                                                                                                  | `{ applied }`                                                                                                                    |
+| `set_schedule` / `clear_schedule` | `id`, `enabled`, `days`, `off`, `on` / `id`                                                           | `{ schedule }` / `{ pending }`                                                                                                   |
+| `tick`                            | none                                                                                                  | `{ changed }`. Enforces schedules; the service below calls it.                                                                   |
 - A network the agent made has an `id` like `k3x9wq`; it owns one `wifi-iface` per band, named `zeeli_<id>_<band>`. The router's own slots are listed with their section name as `id` and `owner: 'firmware'`, plus a `role`: `main`, `guest`, `iot`, `mlo`, `mlo-guest` or `other`. Station and mesh-backhaul interfaces come back under `internal`, not in `networks`.
 - Only `owner: 'zeeli'` networks can be changed, and only if the section has both the `zeeli_<id>_<band>` name and `option zeeli '1'`. Everything else is refused with a message.
 - `network` is the name the networks page uses (`main`, `guest`, a custom name) or the UCI interface name. It has to be a `network` interface that is switched on and whose `device` is a bridge.
@@ -119,7 +119,7 @@ Copied from the router's own enabled main AP (`wifi5g`), minus what only the mes
 | `disabled`                                        | `0` or `1`                                                                                                      | the person's switch                                                                                                                                                                                  |
 | `sched_off '1'`                                   | only while a schedule holds the network off                                                                     | see Schedules                                                                                                                                                                                        |
 
-Left out on purpose: `multi_ap` and `wps_*` (mesh and WPS), `mld` (MLO networks are out of scope), `init`, `factory_macaddr` and `random_bssid` (GL's first-run state), `disablecoext` (radio-wide, and set by the main AP).
+Left out on purpose: `multi_ap` and `wps_*` (mesh and WPS), `mld` (only multi-link networks carry it, see below), `init`, `factory_macaddr` and `random_bssid` (GL's first-run state), `disablecoext` (radio-wide, and set by the main AP).
 
 ### Writes and `apply`
 
@@ -186,6 +186,20 @@ GL's own WiFi schedules (`gl_timer`, cron lines calling `/usr/bin/gl_timer_contr
 | `/etc/hotplug.d/*`                                                                                             | Nothing that writes `wireless` but the WPS button handler                                                                                                                                                                                                                                                                 | None                                                                                                                                                                                                                              |
 | Factory reset, `firstboot`                                                                                     | Wipes `/etc/config`                                                                                                                                                                                                                                                                                                       | Ours go with it. A sysupgrade that keeps config keeps them.                                                                                                                                                                       |
 
+### Multi-link (MLO) networks
+
+`create` with `mlo: true` makes one Wi-Fi 7 multi-link network: one name that devices use over two or three bands at once. The scope was decided from what the firmware and driver showed, read-only on a GL-BE9300:
+- **The limit is GL's, not the hardware's.** GL's panel has two MLD slots, `mld0` (main) and `mld1` (guest), hard-coded in its `wifi` RPC (`set_mlo_config`, `get_mlo_config`, `set_mlo_iface_disabled`) and in `qca-wifi-configurator` (`/sbin/wifi gl_multi_up mld0`, `mld1`). The driver (`umac.ko`) caps MLDs at 24 and, per link, at 16 (`MAX_AP_MLDS_PER_LINK`, the `cmp #0x10` in `ieee80211_add_vdev_ids`; "Max MLD creation limit reached" is the `cmp #0x18` in `wlan_cfg80211_mld_add_virtual_intf`). `mld-phy0` allows 17 APs. The scripts take every `wifi-mld` section of `/etc/config/wireless` generically (`scan_wifi` fills `MLD_DEVICES`; the hostapd and qcawificfg80211 scripts loop over it). So the agent makes more MLDs, numbered 2 up to 15, and stops at 16 in total with GL's two.
+- **Creating works live: a third MLD came up in `br-lan` with both links.** Deleting is where it went wrong, see below.
+- **Section layout.** One `wifi-mld` section `zeeli_mld<n>` (`mld_ssid`, `mld_macaddr`, `zeeli '1'`) in `/etc/config/wireless`, plus one link `wifi-iface` per band, `zeeli_<id>_<band>`, which is the same shape as a per-band network with `option mld 'zeeli_mld<n>'` and `zeeli '1'`. The MLD is named `zeeli_mld<n>` because the scripts take the MLD number (`mld_id`) from the digits of its name and treat any name containing `mld` as an MLD; GL's panel only looks at `^mld` and `^wlanmld`, so it never sees ours. A network id never contains `mld`, for the same reason. All links carry identical security, so a multi-link network never gets `sae_pwe` even on 6 GHz (GL's own `wlanmld6g` has none either).
+- **`/etc/config/mlo` is not written.** It holds GL's two slots' settings (`bands`, `disabled`) and `global.support_bands`. The agent reads `support_bands` (a band not listed can't join a multi-link network) and leaves the rest alone; a test checks it is unchanged.
+- **Rules.** WPA3 only (`security` defaults to `sae` and anything else is refused), at least two bands, every band in `support_bands`, a free MLD number, plus the per-band checks (name unique per radio, free slot, network on and bridged). `list.mlo` is `{ supported, bands, reason }` so a form can say no first. Once made, a multi-link network is **frozen**: `update`, `set_enabled` off, `set_schedule`, `clear_schedule` and `create` with a `schedule` are refused with "On this firmware a multi-link network can’t be changed or switched off while the router runs. Delete it and make it again." The scheduler skips them. Switching one on is allowed because it is never off.
+- **Deleting needs a restart; the agent never destroys an MLD.** The first version took a deleted multi-link network off the air on `apply` the way GL's `set_mlo_config` does (`iw <link> del`, `hostapd_cli … REMOVE`, `ip link set dev zeeli_mld2 nomaster`, `iw zeeli_mld2 del`). On the live router the `iw zeeli_mld2 del` panicked the kernel and rebooted it: `/tmp/log/crash_log` has `osif_destroy_mld_bond+0x180 [umac] ← osif_mld_destroy ← wlan_cfg80211_mld_del_virtual_intf` and "Kernel panic - not syncing: Fatal exception". So now:
+  - `delete` removes the `zeeli_*` sections (links, the `wifi-mld`, any schedule), commits, writes `wifi-restart-needed` in `paths.state` (a JSON list of the removed names) and returns `{ restartNeeded: true }`. No interface command is queued or run. `/var/lib/zeeli` is RAM, so a reboot clears the flag, and the boot builds the radios from the settings without the network.
+  - `list` carries `restartNeeded` and `restartFor` (the names). While the flag stands, `apply` refuses with "…Restart the router first." A WiFi reload with a missing MLD might reach the same destroy path.
+  - A multi-link network can't be switched off or edited because the configurator removes a fully disabled MLD group (`remove fully disabled MLO group` in its strings), which is very likely the same destroy path. Not tried live, on purpose.
+  - Per-band networks keep their teardown (`hostapd_cli REMOVE`, `ifconfig down`, `wlanconfig destroy`), proven live. A test checks that no apply ever logs `iw … del`, `nomaster`, `destroy` or `REMOVE` for a multi-link network.
+
 ### Live checks
 
 These change the router, so the agent's author didn't run them. Run them in order on the router, from a session on a wired port or a main-network device you don't mind losing for a few seconds. `<id>` is what `create` returns. Undo everything with `ubus call zeeli.wifi delete '{"id":"<id>"}'` and `ubus call zeeli.wifi apply`.
@@ -247,6 +261,32 @@ These change the router, so the agent's author didn't run them. Run them in orde
 
    Within a minute: `uci get wireless.zeeli_<id>_5g.disabled` is `1` with `sched_off` set, and `logread` shows the vap going down. Inside the window, `reboot`: after boot the network is off again (`ls /var/lib/zeeli` shows `wifi-schedule.json`). After `on`, it comes back by itself. A network you switched off yourself (`set_enabled`) must still be off after the window.
 9. **Deleting a network under it.** Delete the network a Zeeli network joins in the GL panel. Expect `uci get wireless.zeeli_<id>_5g.network` to still name it, and the vap to come up unbridged or not at all. Decide whether the Networks page should refuse, or take the WiFi networks down with it.
+10. **A multi-link network, end to end.** (Creating was checked live.) Note `iw dev | grep -c mld_addr` and `ip -br link | grep mld`, then:
+
+    ```sh
+    ubus call zeeli.wifi create '{"ssid":"ZMLO","password":"test-password-3","bands":["5g","6g"],"network":"main","mlo":true}'
+    ubus call zeeli.wifi apply; sleep 15
+    ip -br link | grep zeeli_mld2; iw dev | grep -B8 ZMLO
+    ubus call zeeli.wifi update '{"id":"<id>","ssid":"x"}'                 # refused, nothing changes
+    ubus call zeeli.wifi set_enabled '{"id":"<id>","enabled":false}'      # refused
+    ```
+
+    Expect the two refusals, `uci show wireless | grep zeeli_` unchanged, and ZMLO still on the air. A Wi-Fi 7 client joins, and `iw dev wlan130 station dump` and `wlan230` both list it when it uses both links.
+11. **Deleting it never touches the driver.** Run this where a reboot is fine (about two minutes offline):
+
+    ```sh
+    ubus call zeeli.wifi delete '{"id":"<id>"}'        # {"restartNeeded":true}
+    uci show wireless | grep zeeli_                     # nothing
+    iw dev | grep ZMLO; ip -br link | grep zeeli_mld    # still there: the radios haven't changed
+    ubus call zeeli.wifi list | jsonfilter -e '@.restartNeeded' -e '@.restartFor[*]'
+    ubus call zeeli.wifi apply                          # refused, "Restart the router first"
+    ls /var/lib/zeeli/wifi-restart-needed
+    reboot
+    ```
+
+    After boot: ZMLO and `zeeli_mld2` are gone from `iw dev` and `ip -br link`, `mld0`, `mld1` and the main networks are up with their usual names, `list` says `restartNeeded` false and `apply` works. `/tmp/log/crash_log` has no new entry.
+12. **GL's panel with a multi-link network present.** While ZMLO exists, open GL's WiFi and MLO pages: no `ZMLO` row, nothing changed, saving GL's own MLO settings still works. Also `curl … wifi get_mlo_config` as in check 4: it must still report mld0 and mld1 only.
+
 ## History: `zeeli.stats` and the collector
 
 `init.d/zeeli-collector` runs `bin/zeeli-collector run` under procd (respawned, low priority). ucode here has no uloop, so the loop is plain: sample, `sleep()` until the next minute, repeat. A sample takes about 0.1 s of wall time, mostly pings, and the process holds 2.4 MB. `lib/zeeli/collector.uc` has the logic (`tick` takes a snapshot as an argument, so tests feed it made-up ones), `lib/zeeli/sources.uc` reads the router, `lib/zeeli/ring.uc` stores, `lib/zeeli/stats.uc` answers `rpcd/zeeli-stats.uc`.

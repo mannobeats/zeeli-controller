@@ -49,16 +49,22 @@ export function OwnTable({ rows, labels, clientsOn, busy, onOpen, onSwitch, onDe
           header: 'Bands',
           phone: 'sub',
           size: 'lg',
-          cell: (n) => (
-            <span className="conn">
-              {n.bands.map((b) => (
-                <span className="conn" key={b}>
-                  <Swatch category={bandCategory(b)} />
-                  {BAND_RADIO[b]}
-                </span>
-              ))}
-            </span>
-          ),
+          cell: (n) =>
+            n.mlo ? (
+              <span className="conn">
+                <Swatch category="mlo" />
+                {`MLO · ${n.bands.map((b) => BAND_RADIO[b]).join(' + ')}`}
+              </span>
+            ) : (
+              <span className="conn">
+                {n.bands.map((b) => (
+                  <span className="conn" key={b}>
+                    <Swatch category={bandCategory(b)} />
+                    {BAND_RADIO[b]}
+                  </span>
+                ))}
+              </span>
+            ),
         },
         { key: 'net', header: 'Network', size: 'md', cell: (n) => labels[n.network] ?? n.network },
         { key: 'sec', header: 'Security', size: 'md', cell: (n) => SECURITY[n.security] ?? n.security },
@@ -80,7 +86,7 @@ export function OwnTable({ rows, labels, clientsOn, busy, onOpen, onSwitch, onDe
             // biome-ignore lint/a11y/noStaticElementInteractions: stops the row from opening when the switch is used
             // biome-ignore lint/a11y/useKeyWithClickEvents: the switch inside handles keys itself
             <span onClick={(e) => e.stopPropagation()}>
-              <Switch checked={!n.disabled} label={`${n.ssid} on`} onChange={(on) => onSwitch([n], on)} disabled={busy} />
+              <Switch checked={!n.disabled} label={`${n.ssid} on`} onChange={(on) => onSwitch([n], on)} disabled={busy || n.mlo} />
             </span>
           ),
         },

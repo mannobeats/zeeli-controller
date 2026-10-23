@@ -20,6 +20,8 @@ interface Demo {
   passwords: Map<string, string>;
   /** Saved but not applied yet. */
   pending: boolean;
+  /** Multi-link networks deleted and still on the air until a restart. */
+  restartFor: string[];
   seq: number;
 }
 
@@ -44,6 +46,7 @@ const own = (id: string, ssid: string, bands: OwnBand[], network: string, extra:
   isolate: false,
   disabled: false,
   hasKey: true,
+  mlo: false,
   scheduledOff: false,
   options: OPTIONS,
   schedule: null,
@@ -91,6 +94,7 @@ function seedDemo(): Demo {
       ['shop01', 'solder and code'],
     ]),
     pending: false,
+    restartFor: [],
     seq: 1,
   };
 }
@@ -139,6 +143,9 @@ const withOptions = (...parts: (Partial<WifiOptions> | undefined)[]): WifiOption
 };
 
 const find = (d: Demo, id: unknown) => d.own.find((n) => n.id === id);
+const LOCKED = {
+  error: 'On this firmware a multi-link network can’t be changed or switched off while the router runs. Delete it and make it again.',
+};
 const missing = { error: 'That network doesn’t exist, or it belongs to the router’s own settings.' };
 
 /** `zeeli.wifi` on the demo router. */
@@ -149,6 +156,9 @@ export const agentWifi: Record<string, Handler> = {
       networks: [...FIRMWARE, ...d.own],
       radios: OWN_BANDS.map((band, i) => ({ device: `wifi${i}`, band, disabled: false, used: bandsUsed(d, band), limit: LIMIT })),
       lanNetworks: joinable(s),
+      mlo: { supported: true, bands: [...OWN_BANDS], reason: null },
+      restartNeeded: d.restartFor.length > 0,
+      restartFor: d.restartFor,
       internal: [],
       pending: d.pending,
     };
@@ -159,13 +169,15 @@ export const agentWifi: Record<string, Handler> = {
   },
   'zeeli:wifi.create': (s, a) => {
     const d = demo(s);
-    const input = a as unknown as OwnWifiInput;
+    if (a.mlo && a.schedule) return LOCKED;
+    const input = { ...a, security: a.security ?? (a.mlo ? 'sae' : 'sae-mixed') } as unknown as OwnWifiInput;
     const bad = problem(s, d, input);
     if (bad) return { error: bad };
     const id = `net${String(++d.seq).padStart(2, '0')}${Math.random().toString(36).slice(2, 4)}`;
     d.own.push(
       own(id, input.ssid, [...input.bands].sort(), input.network, {
-        security: input.security ?? 'sae-mixed',
+        mlo: Boolean(input.mlo),
+        security: input.security,
         hidden: Boolean(input.hidden),
         isolate: Boolean(input.isolate),
         options: withOptions(input.options),
@@ -180,6 +192,7 @@ export const agentWifi: Record<string, Handler> = {
     const d = demo(s);
     const n = find(d, a.id);
     if (!n) return missing;
+    if (n.mlo) return LOCKED;
     const next = { ...n, ...(a as Partial<OwnWifi>), options: withOptions(n.options, a.options as Partial<WifiOptions> | undefined) };
     const password = typeof a.password === 'string' ? a.password : (d.passwords.get(n.id) ?? '');
     const bad = problem(s, d, { ...next, password, schedule: n.schedule }, n.id);
@@ -199,32 +212,50 @@ export const agentWifi: Record<string, Handler> = {
   },
   'zeeli:wifi.delete': (s, a) => {
     const d = demo(s);
-    if (!find(d, a.id)) return missing;
-    d.own = d.own.filter((n) => n.id !== a.id);
+    const n = find(d, a.id);
+    if (!n) return missing;
+    d.own = d.own.filter((x) => x.id !== a.id);
+    if (n.mlo) {
+      d.restartFor.push(n.ssid);
+      return { restartNeeded: true };
+    }
     d.pending = true;
     return { pending: true };
   },
   'zeeli:wifi.set_enabled': (s, a) => {
     const n = find(demo(s), a.id);
     if (!n) return missing;
+    if (n.mlo && !a.enabled) return LOCKED;
     Object.assign(n, { disabled: !a.enabled, scheduledOff: false });
     demo(s).pending = true;
     return { pending: true };
   },
   'zeeli:wifi.apply': (s) => {
+    if (demo(s).restartFor.length)
+      return {
+        error:
+          'A multi-link network was deleted, and the router has to restart to finish removing it. Reloading WiFi before then could crash it. Restart the router first.',
+      };
     demo(s).pending = false;
     return { applied: true };
   },
   'zeeli:wifi.set_schedule': (s, a) => {
     const n = find(demo(s), a.id);
     if (!n) return missing;
+    if (n.mlo) return LOCKED;
     n.schedule = { enabled: a.enabled !== false, days: a.days as WifiSchedule['days'], off: String(a.off), on: String(a.on) };
     return { schedule: n.schedule };
   },
   'zeeli:wifi.clear_schedule': (s, a) => {
     const n = find(demo(s), a.id);
     if (!n) return missing;
+    if (n.mlo) return LOCKED;
     Object.assign(n, { schedule: null, scheduledOff: false });
     return { pending: false };
+  },
+  /** A restart brings the radios up from the settings, so a deleted multi-link network is finally gone. */
+  'system.reboot': (s) => {
+    demo(s).restartFor = [];
+    return {};
   },
 };

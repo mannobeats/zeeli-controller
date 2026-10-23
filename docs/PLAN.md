@@ -136,7 +136,8 @@ Phases 1 to 6 are built and running on the test router. They live in the agent (
 
 Still open:
 - policy actions that route through a VPN or a chosen WAN
-- MLO network creation and per-device WiFi keys
+- per-device WiFi keys
+- MLO networks beyond GL's two slots: creating works live; deleting one needs a router restart because destroying an MLD panics this driver (see the agent README)
 - drag-to-reorder for rules and policies (today: up and down buttons)
 - mesh node details, untested because no node is attached
 - phase 7, Zeeli's own firmware

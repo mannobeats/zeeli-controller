@@ -103,6 +103,63 @@ describe('making and changing networks', () => {
   });
 });
 
+describe('multi-link (MLO) networks', () => {
+  const mlo: OwnWifiInput = { ...input, ssid: 'Wi-Fi 7', bands: ['5g', '6g'], security: 'sae', mlo: true };
+
+  test('the overview says multi-link is possible and on which bands', async () => {
+    expect(await api.wifiNetworks.overview()).toMatchObject({
+      mlo: { supported: true, bands: ['2g', '5g', '6g'], reason: null },
+      restartNeeded: false,
+    });
+    expect((await mine()).every((n) => !n.mlo)).toBe(true);
+  });
+
+  test('create makes one network over its bands, and WPA3 is the default', async () => {
+    const { id } = await api.wifiNetworks.create({ ...mlo, security: undefined as never });
+    expect((await mine()).find((n) => n.id === id)).toMatchObject({ ssid: 'Wi-Fi 7', mlo: true, bands: ['5g', '6g'], security: 'sae' });
+  });
+
+  test('refuses one band and anything but WPA3', async () => {
+    const fail = (patch: Partial<OwnWifiInput>) => api.wifiNetworks.create({ ...mlo, ...patch });
+    await expect(fail({ bands: ['5g'] })).rejects.toThrow('Multi-link needs at least two bands.');
+    await expect(fail({ security: 'sae-mixed' })).rejects.toThrow('Multi-link networks need WPA3.');
+  });
+
+  const locked =
+    'On this firmware a multi-link network can’t be changed or switched off while the router runs. Delete it and make it again.';
+
+  test('it can’t be edited, switched off or scheduled', async () => {
+    const { id } = await api.wifiNetworks.create(mlo);
+    await expect(api.wifiNetworks.update(id, { ssid: 'Renamed' })).rejects.toThrow(locked);
+    await expect(api.wifiNetworks.setEnabled(id, false)).rejects.toThrow(locked);
+    await expect(api.wifiNetworks.setSchedule(id, { enabled: true, days: ['mon'], off: '22:00', on: '07:00' })).rejects.toThrow(locked);
+    await expect(api.wifiNetworks.setSchedule(id, null)).rejects.toThrow(locked);
+    await expect(
+      api.wifiNetworks.create({ ...mlo, ssid: 'Timed', schedule: { enabled: true, days: ['mon'], off: '22:00', on: '07:00' } }),
+    ).rejects.toThrow(locked);
+    expect((await mine()).find((n) => n.id === id)).toMatchObject({ ssid: 'Wi-Fi 7', disabled: false });
+  });
+
+  test('deleting asks for a restart, blocks apply until then, and a restart clears it', async () => {
+    const { id } = await api.wifiNetworks.create(mlo);
+    await api.wifiNetworks.apply();
+    expect(await api.wifiNetworks.remove(id)).toEqual({ restartNeeded: true });
+    expect((await mine()).map((n) => n.id)).not.toContain(id);
+    expect(await api.wifiNetworks.overview()).toMatchObject({ restartNeeded: true, restartFor: ['Wi-Fi 7'] });
+    await expect(api.wifiNetworks.apply()).rejects.toThrow('Restart the router first');
+    await api.system.reboot();
+    expect(await api.wifiNetworks.overview()).toMatchObject({ restartNeeded: false, restartFor: [] });
+    await api.wifiNetworks.apply();
+  });
+
+  test('checkOwnWifi says the same before asking', () => {
+    const ok = { ssid: 'Fine', bands: ['5g' as const, '6g' as const], security: 'sae' as const, mlo: true };
+    expect(checkOwnWifi(ok)).toBeNull();
+    expect(checkOwnWifi({ ...ok, bands: ['5g'] })).toBe('Multi-link needs at least two bands.');
+    expect(checkOwnWifi({ ...ok, bands: ['2g', '5g'], security: 'sae-mixed' })).toBe('Multi-link networks need WPA3.');
+  });
+});
+
 describe('checkOwnWifi', () => {
   const ok = { ssid: 'Fine', bands: ['5g' as const], security: 'sae' as const };
   test('counts the name in bytes and refuses control characters', () => {

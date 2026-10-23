@@ -20,6 +20,8 @@ export interface OwnForm {
   bands: OwnBand[];
   network: string;
   security: OwnSecurity;
+  /** One multi-link (Wi-Fi 7) network over its bands. Fixed once the network exists. */
+  mlo: boolean;
   hidden: boolean;
   isolate: boolean;
   fastRoaming: boolean;
@@ -40,6 +42,7 @@ export const blankForm = (network: string): OwnForm => ({
   bands: ['5g'],
   network,
   security: 'sae-mixed',
+  mlo: false,
   hidden: false,
   isolate: false,
   fastRoaming: false,
@@ -59,6 +62,7 @@ export const formOf = (n: OwnWifi): OwnForm => ({
   ssid: n.ssid,
   bands: n.bands,
   security: n.security,
+  mlo: n.mlo,
   hidden: n.hidden,
   isolate: n.isolate,
   fastRoaming: n.options.fastRoaming,
@@ -82,6 +86,7 @@ export function formProblem(f: OwnForm, editing: boolean): string | null {
     ssid: f.ssid,
     bands: f.bands,
     security: f.security,
+    mlo: f.mlo,
     ...(editing && !f.password ? {} : { password: f.password }),
   });
   if (base) return base;
@@ -107,15 +112,16 @@ export const toInput = (f: OwnForm): OwnWifiInput => ({
   bands: f.bands,
   network: f.network,
   security: f.security,
+  mlo: f.mlo,
   hidden: f.hidden,
   isolate: f.isolate,
   options: options(f),
   schedule: scheduleOf(f),
 });
 
-/** An edit: the password is only sent when a new one was typed. */
+/** An edit: the password is only sent when a new one was typed. Multi-link networks aren't edited. */
 export const toPatch = (f: OwnForm) => {
-  const { schedule: _schedule, password, ...rest } = toInput(f);
+  const { schedule: _schedule, password, mlo: _mlo, ...rest } = toInput(f);
   return password ? { ...rest, password } : rest;
 };
 
