@@ -13,7 +13,7 @@ import { TextField } from '../../ui/fields.tsx';
 import { matches } from '../../ui/filter.ts';
 import { Address, Empty, Panel } from '../../ui/Layout.tsx';
 
-type Rewrite = { domain: string; answer: string };
+type Rewrite = { domain: string; answer: string; enabled?: boolean };
 const KEY = ['adguard-rewrites'];
 
 /** DNS rewrites: answer a name with an address (or another name) instead of asking the internet. */
@@ -37,7 +37,7 @@ export function Rewrites() {
 function useRewriteWrites() {
   const { toast } = useFeedback();
   const add = useWrite((r: Rewrite) => api.dns.addRewrite(r.domain, r.answer), [KEY]);
-  const remove = useWrite((r: Rewrite) => api.dns.deleteRewrite(r.domain, r.answer), [KEY]);
+  const remove = useWrite((r: Rewrite) => api.dns.deleteRewrite({ ...r, enabled: r.enabled !== false }), [KEY]);
   const create = (r: Rewrite) => add.mutateAsync(r).then(() => toast(`${r.domain} now answers ${r.answer}`, () => remove.mutateAsync(r)));
   const drop = (r: Rewrite) =>
     remove.mutateAsync(r).then(
@@ -77,7 +77,17 @@ function RewriteTable({ rows, busy, onDelete }: { rows: Rewrite[]; busy: boolean
       rowKey={(r) => `${r.domain} ${r.answer}`}
       columns={[
         { key: 'domain', header: 'Name', phone: 'title', cell: (r) => <span className="name">{r.domain}</span> },
-        { key: 'answer', header: 'Answers with', phone: 'sub', cell: (r) => <Address value={r.answer} /> },
+        {
+          key: 'answer',
+          header: 'Answers with',
+          phone: 'sub',
+          cell: (r) => (
+            <>
+              <Address value={r.answer} />
+              {r.enabled === false ? <span className="muted"> · off</span> : null}
+            </>
+          ),
+        },
         {
           key: 'delete',
           header: <span className="sr-only">Delete</span>,

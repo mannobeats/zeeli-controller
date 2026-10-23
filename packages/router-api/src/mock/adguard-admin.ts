@@ -29,7 +29,7 @@ interface Admin {
   rules: string[];
   services: { ids: string[]; schedule: unknown };
   clients: AdguardClient[];
-  rewrites: { domain: string; answer: string }[];
+  rewrites: { domain: string; answer: string; enabled: boolean }[];
 }
 
 const admin = (s: MockState): Admin => {
@@ -60,7 +60,7 @@ const admin = (s: MockState): Admin => {
         ignore_statistics: false,
       },
     ],
-    rewrites: [{ domain: 'nas.home', answer: '192.168.8.20' }],
+    rewrites: [{ domain: 'nas.home', answer: '192.168.8.20', enabled: true }],
   };
   s.extra.set('adguard-admin', fresh);
   return fresh;
@@ -105,7 +105,7 @@ export const adguardAdminHandlers: Record<string, Handler> = {
   },
   'adguard:rewrite/list': (s) => admin(s).rewrites,
   'adguard:rewrite/add': (s, a) => {
-    admin(s).rewrites.push({ domain: String(a.domain), answer: String(a.answer) });
+    admin(s).rewrites.push({ domain: String(a.domain), answer: String(a.answer), enabled: a.enabled !== false });
     return {};
   },
   'adguard:rewrite/delete': (s, a) => {

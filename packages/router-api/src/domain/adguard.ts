@@ -62,6 +62,12 @@ export const cleanDomain = (v: string) =>
     .replace(/^[a-z]+:\/\//, '')
     .replace(/[/?#].*$/, '');
 
+export interface AdguardRewrite {
+  domain: string;
+  answer: string;
+  enabled: boolean;
+}
+
 /** The problem with a rewrite, in a sentence, or '' when it is fine. */
 export function rewriteProblem(domain: string, answer: string): string {
   if (!isHostName(domain, true)) return `“${domain}” isn’t a domain name. Use something like nas.home, or *.home for every name under it.`;
@@ -132,7 +138,8 @@ export const newProfile = (name: string, ids: string[]): AdguardClient => ({
   filtering_enabled: true,
   parental_enabled: false,
   safebrowsing_enabled: false,
-  safe_search: { enabled: false },
+  // AdGuard only enforces SafeSearch on the engines switched on here; all of them, like its own default
+  safe_search: { enabled: false, bing: true, duckduckgo: true, ecosia: true, google: true, pixabay: true, yandex: true, youtube: true },
   use_global_blocked_services: true,
   blocked_services: [],
   tags: [],
@@ -200,11 +207,12 @@ export const adguardAdmin = (t: Transport) => {
     updateAdguardClient: (name: string, client: AdguardClient) => put('clients/update', { name, data: client }),
     deleteAdguardClient: (name: string) => put('clients/delete', { name }),
 
-    async rewrites(): Promise<{ domain: string; answer: string }[]> {
-      const r = await t.adguard<{ domain: string; answer: string }[] | null>('rewrite/list');
-      return Array.isArray(r) ? r.map(({ domain, answer }) => ({ domain, answer })) : [];
+    // AdGuard 0.107.7x keeps an on/off flag per rewrite; a delete has to name it to match
+    async rewrites(): Promise<AdguardRewrite[]> {
+      const r = await t.adguard<{ domain: string; answer: string; enabled?: boolean }[] | null>('rewrite/list');
+      return Array.isArray(r) ? r.map(({ domain, answer, enabled }) => ({ domain, answer, enabled: enabled !== false })) : [];
     },
-    addRewrite: (domain: string, answer: string) => put('rewrite/add', { domain, answer }),
-    deleteRewrite: (domain: string, answer: string) => put('rewrite/delete', { domain, answer }),
+    addRewrite: (domain: string, answer: string) => put('rewrite/add', { domain, answer, enabled: true }),
+    deleteRewrite: (r: AdguardRewrite) => put('rewrite/delete', r),
   };
 };

@@ -135,7 +135,7 @@ test('rewrites are checked, added and deleted', async () => {
   await user.type(screen.getByLabelText(/^Answers with/), '192.168.8.30');
   await user.click(screen.getByRole('button', { name: 'Add rewrite' }));
   await expectToast('printer.home now answers 192.168.8.30');
-  expect(await api.dns.rewrites()).toContainEqual({ domain: 'printer.home', answer: '192.168.8.30' });
+  expect(await api.dns.rewrites()).toContainEqual({ domain: 'printer.home', answer: '192.168.8.30', enabled: true });
 
   await user.click(await screen.findByRole('button', { name: 'Delete nas.home' }));
   await expectToast('Deleted nas.home');
