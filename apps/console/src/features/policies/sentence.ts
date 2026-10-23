@@ -1,10 +1,12 @@
-import { type Client, type Group, type Network, type Policy, routerClock, zoneOf } from '@zeeli/router-api';
+import { type Client, type Group, type Network, type Policy, type RouteTarget, routerClock, zoneOf } from '@zeeli/router-api';
 
 /** What a sentence is read against: the names behind the ids a policy holds. */
 export interface Names {
   clients: Client[];
   groups: Group[];
   networks: Network[];
+  /** What a route policy can go through, for its name. */
+  targets: RouteTarget[];
   /** The router's UTC offset like "-0400", to write an end time in its clock. */
   tzoffset?: string;
 }
@@ -44,6 +46,10 @@ function whoNames(p: Draft, names: Names): string[] {
     return `everyone on ${networkName(w.id, names)}`;
   });
 }
+
+/** What a route goes through, by name: "UK VPN", "Ethernet 2". */
+const targetName = (id: string, names: Pick<Names, 'targets'>) =>
+  names.targets.find((t) => t.id === id)?.name ?? 'a connection that’s gone';
 
 /** "the internet", "tiktok.com and 1 more site", "Guest". */
 export function whatText(p: Pick<Draft, 'what'>, names: Pick<Names, 'networks'>): string {
@@ -96,6 +102,10 @@ export function sentence(p: Draft, names: Names, nowSec = Math.floor(Date.now() 
   const a = p.action;
   if (a.kind === 'limit') {
     parts.push({ text: 'Limit ' }, who, { text: ' to ' }, { text: speedText(a.down, a.up), strong: true });
+  } else if (a.kind === 'route') {
+    parts.push({ text: 'Route ' }, who);
+    if (p.what.kind === 'sites') parts.push({ text: ' to ' }, { text: whatText(p, names), strong: true });
+    parts.push({ text: ' through ' }, { text: targetName(a.target, names), strong: true });
   } else {
     const what = { text: whatText(p, names), strong: true };
     if (a.kind === 'allow') parts.push({ text: 'Allow ' }, who, { text: ' to reach ' }, what);

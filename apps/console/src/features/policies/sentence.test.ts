@@ -9,6 +9,10 @@ const names: Names = {
   clients: [client('02:00:00:00:00:01', 'Living-Room-TV'), client('02:00:00:00:00:02', 'Leo’s iPad')],
   groups: [kids],
   networks: [net('main', 'Main LAN'), net('guest', 'Guest'), net('Lab', 'Lab', false, 20)],
+  targets: [
+    { id: 'vpn:10101', kind: 'vpn', name: 'UK VPN', label: 'UK VPN (WireGuard)', up: true },
+    { id: 'uplink:secondwan', kind: 'uplink', name: 'Ethernet 2', label: 'Ethernet 2', up: false },
+  ],
   tzoffset: '-0400',
 };
 
@@ -57,6 +61,23 @@ test('allow and limit read their own way', () => {
   expect(text(policy({ action: { kind: 'limit', down: 5, up: 1 } }))).toBe('Limit Kids to 5 Mbps down, 1 up');
   expect(speedText(2.5, 0)).toBe('2.5 Mbps down');
   expect(speedText(0, 1)).toBe('1 Mbps up');
+});
+
+test('a route reads as who, the target and, for sites, what', () => {
+  const tv = [{ type: 'client' as const, id: '02:00:00:00:00:01' }];
+  const via = (target: string) => ({ kind: 'route' as const, target, fallback: 'block' as const });
+  expect(text(policy({ who: tv, action: via('vpn:10101') }))).toBe('Route Living-Room-TV through UK VPN');
+  expect(text(policy({ action: via('uplink:secondwan') }))).toBe('Route Kids through Ethernet 2');
+  expect(text(policy({ what: { kind: 'sites', sites: ['netflix.com'] }, action: via('vpn:10101') }))).toBe(
+    'Route Kids to netflix.com through UK VPN',
+  );
+  expect(text(policy({ action: via('vpn:99999') }))).toBe('Route Kids through a connection that’s gone');
+  expect(
+    sentence(policy({ who: tv, action: via('vpn:10101') }), names)
+      .filter((s) => s.strong)
+      .map((s) => s.text),
+  ).toEqual(['Living-Room-TV', 'UK VPN']);
+  expect(suggestedName(policy({ who: tv, action: via('vpn:10101') }), names)).toBe('Route Living-Room-TV through UK VPN');
 });
 
 test('who is listed the way people say it', () => {

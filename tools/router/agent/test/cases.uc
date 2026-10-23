@@ -31,6 +31,19 @@ const pause = policy('000005', 40, { who: [client(TV)], what: { kind: 'everythin
 
 const base = { groups: [kids], zones: ZONES, internet: ['wan'] };
 
+/** A router with a WireGuard tunnel (GL's wgclient1, mark 0x1000) and a second Ethernet uplink; both up. */
+const TARGETS = {
+	'vpn:10101': { kind: 'vpn', label: 'UK VPN (WireGuard)', up: true, dev: 'wgclient1', gw: null, mark: 0x1000 },
+	'uplink:secondwan': { kind: 'uplink', label: 'Ethernet 2', up: true, dev: 'eth2', gw: '192.168.2.1', mark: 0 },
+};
+const ROUTE_ZONES = { ...ZONES, wan: ['eth0', 'eth2', 'sta1'], wgclient1: ['wgclient1'] };
+const routing = { ...base, zones: ROUTE_ZONES, internet: ['wan', 'wgclient1'], targets: TARGETS };
+const via = (target, fallback) => ({ kind: 'route', target, fallback });
+const tvViaUk = policy('000007', 10, { who: [client(TV)], action: via('vpn:10101', 'block') });
+const kidsViaEth2 = policy('000008', 20, { who: [group('a1b2c3')], when: everyNight, action: via('uplink:secondwan', 'normal') });
+const netflix = policy('000009', 30, { who: [client(TV)], what: { kind: 'sites', sites: ['netflix.com'] }, action: via('vpn:10101', 'normal') });
+const down = { ...TARGETS, 'vpn:10101': { ...TARGETS['vpn:10101'], up: false }, 'uplink:secondwan': { ...TARGETS['uplink:secondwan'], up: false } };
+
 /** name -> { input }; each becomes test/golden/<name>.nft */
 const CASES = {
 	'group-schedule-night': { ...base, policies: [bedtime], now: at(23, 0) },
@@ -40,7 +53,12 @@ const CASES = {
 	'allow-exception': { ...base, policies: [exception, bedtime], now: at(23, 0) },
 	'pause-running': { ...base, policies: [pause], now: at(23, 30) },
 	'pause-expired': { ...base, policies: [pause], now: at(24, 5) },
+	'route-vpn-block': { ...routing, policies: [tvViaUk], now: at(12, 0) },
+	'route-uplink-night': { ...routing, policies: [kidsViaEth2], now: at(23, 0) },
+	'route-uplink-day': { ...routing, policies: [kidsViaEth2], now: at(12, 0) },
+	'route-sites-and-order': { ...routing, policies: [policy('000001', 5, { who: [group('a1b2c3')], when: everyNight }), tvViaUk, netflix, kidsViaEth2], now: at(23, 0) },
+	'route-target-down': { ...routing, targets: down, policies: [tvViaUk, netflix, kidsViaEth2], now: at(23, 0) },
 };
 
 // this ucode needs exports listed rather than marked inline
-export { ZONES, CASES, at, policy, group, client, network, kids, base, everyNight, MAYA, LEO, TABLET, TV };
+export { ZONES, CASES, TARGETS, at, policy, group, client, network, kids, base, routing, via, everyNight, MAYA, LEO, TABLET, TV };

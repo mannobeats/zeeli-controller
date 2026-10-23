@@ -8,6 +8,10 @@
 //   - one chain per policy, holding that policy's rules while it applies and nothing while it
 //     doesn't, so a schedule or an expiry only ever changes chain bodies
 //   - `zeeli_forward`, a base chain at priority -1 that jumps to the policy chains in order
+//   - for "route" policies, a chain that marks the covered devices' packets (`zeeli_route`, a base chain
+//     at prerouting priority -151, one step ahead of GL's own marking) and, when traffic must never
+//     leave another way, a chain in front of the others in `zeeli_forward` that drops marked packets
+//     heading for any other internet-facing device. See the README for how the marks are used.
 //   - `zeeli_rev`, a chain nothing jumps to, whose one rule carries a hash of the rest of the file
 //     in its comment, so the agent can read back from the live ruleset which file fw4 really loaded
 //   - for "sites" policies, a chain that sends the covered devices' DNS to dnsmasq (see below),
@@ -20,6 +24,13 @@
 const BLOCK_PRIORITY = -1;
 /** One before fw4's and GL's dstnat chains (-100), so a device's DNS is sent to dnsmasq before GL sends it to AdGuard Home. */
 const DNS_PRIORITY = -101;
+/** Before fw4's and GL's mangle chains (-150), so a packet is marked before GL's tunnel rules look at it. */
+const ROUTE_PRIORITY = -151;
+/** The bits Zeeli marks routed packets with: a slot number (1 to 15) in bits 24 to 27. Nothing else on the GL firmware uses them. */
+const SLOT_MASK = 0x0f000000;
+const SLOT_ONE = 0x01000000;
+/** Where the slot's uplink routing table and its two ip rules live (see zeeli.policyapply). */
+const TABLE_BASE = 7700;
 const SITE_SET_SIZE = 4096;
 const SITE_TIMEOUT = 3600;
 
@@ -133,6 +144,58 @@ function redirects(srcs) {
 	return lines;
 }
 
+const hex = (n) => sprintf('0x%08x', n);
+const routeKey = (a) => `${a.target}/${a.fallback}`;
+
+/**
+ * One slot per distinct target and fallback among all route policies (applying or not), so a
+ * mark means the same thing whether or not its policy applies at the moment.
+ */
+function routeSlots(policies) {
+	const keys = [];
+	for (let p in policies) if (p.action.kind == 'route' && index(keys, routeKey(p.action)) < 0) push(keys, routeKey(p.action));
+	const slots = {};
+	let n = 1;
+	for (let k in sort(keys)) slots[k] = n++;
+	return slots;
+}
+
+/** Destination matches for a route policy; the destination's device isn't known before routing, so "the internet" is every packet. */
+const routeDestinations = (p) => (p.what.kind == 'sites' ? [`ip daddr @zeeli_s4_${p.id}`, `ip6 daddr @zeeli_s6_${p.id}`] : ['']);
+
+/**
+ * What a route policy does to the packets of its sources: set the slot's mark (and GL's own mark
+ * for a VPN tunnel, so GL's routing table, DNS handling and zone for that tunnel apply), unless an
+ * earlier route policy already marked them. A policy that must never leak (fallback "block") also
+ * gets a rule that drops its marked packets heading for any internet-facing device but the
+ * target's. A policy that falls back to the normal route marks nothing while its target is down.
+ */
+function routePolicy(p, on, srcs, slot, input, out) {
+	const t = input.targets?.[p.action.target], block = p.action.fallback == 'block';
+	const mark = SLOT_ONE * slot;
+	const chain = { name: `zeeli_p_${p.id}`, rules: [] }, kill = { name: `zeeli_k_${p.id}`, rules: [] };
+	push(out.routes, chain);
+	push(out.kills, kill);
+	if (!on) return;
+	if (!t) push(out.warnings, `${p.name}: the VPN tunnel or internet connection it routes through is gone, so ${block ? 'its devices have no internet until the policy is changed' : 'the policy does nothing'}.`);
+	else if (input.ipv6 && t.kind == 'uplink') push(out.warnings, `${p.name}: IPv6 traffic isn’t sent through ${t.label}; it keeps using the normal connection.`);
+	if (!t?.up && !block) return;
+
+	const value = mark | (t?.mark ?? 0);
+	const guard = `meta mark and ${hex(SLOT_MASK)} == ${hex(0)}`;
+	for (let s in srcs.matches)
+		for (let d in routeDestinations(p))
+			push(chain.rules, join(' ', filter([s, d, 'fib daddr type != { local, broadcast, multicast }', guard, 'counter', `meta mark set meta mark or ${hex(value)}`], (x) => x != '')));
+	for (let mac in srcs.macs) out.routed[mac] ??= routeKey(p.action);
+
+	if (t?.kind == 'uplink' && t.up && t.dev && !length(filter(out.uplinks, (u) => u.slot == slot)))
+		push(out.uplinks, { slot, mark, table: TABLE_BASE + slot, dev: t.dev, gw: t.gw ?? null, target: p.action.target });
+	if (!block) return;
+	const away = [];
+	for (let z in input.internet) for (let d in input.zones[z] ?? []) if (d != t?.dev && index(away, d) < 0) push(away, d);
+	if (length(away)) push(kill.rules, `meta mark and ${hex(SLOT_MASK)} == ${hex(mark)} oifname ${literal(away)} counter drop`);
+}
+
 /**
  * Rule lines for a policy that applies now: every source against every destination. Only the
  * original direction of a connection is matched, so the blocked side can't start connections
@@ -154,15 +217,20 @@ function rulesFor(policy, srcs, dsts) {
  *   input.zones      { zone name: [devices] } for the firewall zones, as fw4 resolved them
  *   input.internet   names of the zones that count as "the internet"
  *   input.now        { ts, wday, minutes } from `clock`
+ *   input.targets    { target id: { kind: 'vpn' | 'uplink', label, up, dev, gw, mark } } for the targets route
+ *                    policies name: `mark` is GL's mark for a VPN tunnel; `dev` and `gw` are the interface's
+ *                    device and gateway
+ *   input.ipv6       whether the router has IPv6 switched on
  * Returns the sets and chains to declare, the speed limits that apply, who is blocked, the
- * domains to hand to dnsmasq, and warnings for parts that were skipped.
+ * domains to hand to dnsmasq, the uplink routes to set (`uplinks`), who is routed where
+ * (`routed`, by MAC), and warnings for parts that were skipped.
  */
 function compile(input) {
 	const groupsById = {};
 	for (let g in input.groups) groupsById[g.id] = g;
 
-	const out = { sets: [], chains: [], dns: [], limits: [], blocked: [], sites: {}, active: [], warnings: [] };
-	const claimed = {}, used = {};
+	const out = { sets: [], chains: [], routes: [], kills: [], dns: [], limits: [], blocked: [], routed: {}, uplinks: [], sites: {}, active: [], warnings: [] };
+	const claimed = {}, used = {}, slots = routeSlots(input.policies);
 	// switched-off policies keep their (empty) chain, so switching one on is a live change
 	const policies = sort([...input.policies], (a, b) => a.order - b.order || (a.id < b.id ? -1 : 1));
 
@@ -183,14 +251,16 @@ function compile(input) {
 			continue;
 		}
 
-		const dsts = destinations(p, input.zones, input.internet, out);
+		const route = p.action.kind == 'route';
+		const dsts = route ? [] : destinations(p, input.zones, input.internet, out);
 		if (length(src.clients)) push(out.sets, { name: `zeeli_c_${p.id}`, kind: 'mac', items: src.clients });
 		if (p.what.kind == 'sites') {
 			push(out.sets, { name: `zeeli_s4_${p.id}`, kind: 'ip4' }, { name: `zeeli_s6_${p.id}`, kind: 'ip6' });
 			out.sites[p.id] = p.what.sites;
 			push(out.dns, { name: `zeeli_d_${p.id}`, rules: on ? redirects(src.matches) : [] });
 		}
-		push(out.chains, { name: `zeeli_p_${p.id}`, rules: on ? rulesFor(p, src.matches, dsts) : [] });
+		if (route) routePolicy(p, on, src, slots[routeKey(p.action)], input, out);
+		else push(out.chains, { name: `zeeli_p_${p.id}`, rules: on ? rulesFor(p, src.matches, dsts) : [] });
 		if (on && p.action.kind == 'block') push(out.blocked, ...src.macs);
 	}
 
@@ -210,15 +280,21 @@ function renderSet(s) {
 function renderBody(c) {
 	const parts = ['# Written by the Zeeli agent from your policies. Changes made here are overwritten.\n\n'];
 	for (let s in c.sets) push(parts, renderSet(s), '\n');
-	for (let ch in [...c.chains, ...c.dns])
+	for (let ch in [...c.chains, ...c.routes, ...c.kills, ...c.dns])
 		push(parts, `\tchain ${ch.name} {\n`, ...map(ch.rules, (r) => `\t\t${r}\n`), '\t}\n\n');
 	if (length(c.dns)) {
 		push(parts, `\tchain zeeli_dns {\n\t\ttype nat hook prerouting priority ${DNS_PRIORITY}; policy accept;\n`);
 		for (let ch in c.dns) push(parts, `\t\tjump ${ch.name}\n`);
 		push(parts, '\t}\n\n');
 	}
+	if (length(c.routes)) {
+		push(parts, `\tchain zeeli_route {\n\t\ttype filter hook prerouting priority ${ROUTE_PRIORITY}; policy accept;\n`);
+		for (let ch in c.routes) push(parts, `\t\tjump ${ch.name}\n`);
+		push(parts, '\t}\n\n');
+	}
+	// the drops that keep routed traffic from leaking go first: an allow further down mustn't skip them
 	push(parts, `\tchain zeeli_forward {\n\t\ttype filter hook forward priority ${BLOCK_PRIORITY}; policy accept;\n`);
-	for (let ch in c.chains) push(parts, `\t\tjump ${ch.name}\n`);
+	for (let ch in [...c.kills, ...c.chains]) push(parts, `\t\tjump ${ch.name}\n`);
 	push(parts, '\t}\n');
 	return join('', parts);
 }
@@ -232,7 +308,10 @@ function render(c) {
 /** The sets and chains the file declares, by name: what `nft list table inet fw4` should hold of ours, and no more. */
 function ownedNames(c) {
 	return {
-		chains: ['zeeli_forward', 'zeeli_rev', ...(length(c.dns) ? ['zeeli_dns'] : []), ...map([...c.chains, ...c.dns], (ch) => ch.name)],
+		chains: [
+			'zeeli_forward', 'zeeli_rev', ...(length(c.dns) ? ['zeeli_dns'] : []), ...(length(c.routes) ? ['zeeli_route'] : []),
+			...map([...c.chains, ...c.routes, ...c.kills, ...c.dns], (ch) => ch.name),
+		],
 		sets: map(c.sets, (s) => s.name),
 	};
 }
@@ -246,7 +325,7 @@ function structureOf(text) {
 	const keep = [];
 	let inside = false;
 	for (let line in split(text, '\n')) {
-		if (match(line, /^\tchain (zeeli_[pd]_[0-9a-f]+|zeeli_rev) \{$/)) inside = true;
+		if (match(line, /^\tchain (zeeli_[pdk]_[0-9a-f]+|zeeli_rev) \{$/)) inside = true;
 		else if (inside && line == '\t}') inside = false;
 		else if (inside) continue;
 		push(keep, line);
@@ -257,7 +336,7 @@ function structureOf(text) {
 /** nft commands that swap in the current rules of every policy chain on a running firewall. */
 function liveCommands(c) {
 	const lines = [];
-	for (let ch in [...c.chains, ...c.dns]) {
+	for (let ch in [...c.chains, ...c.routes, ...c.kills, ...c.dns]) {
 		push(lines, `flush chain inet fw4 ${ch.name}\n`);
 		for (let r in ch.rules) push(lines, `add rule inet fw4 ${ch.name} ${r}\n`);
 	}

@@ -1,6 +1,7 @@
 // zeeli.policies: one rule in plain words. Who (devices, groups, networks), what (the internet,
 // some sites, another network, everything), when (always or a schedule) and the action (block,
-// allow, or limit speed), with an optional end time for "pause for an hour".
+// allow, limit speed, or route through a VPN tunnel or an uplink), with an optional end time for
+// "pause for an hour".
 //
 //   { id, name, enabled, order,
 //     who:    [{ type: 'client' | 'group' | 'network', id }],
@@ -8,6 +9,10 @@
 //     when:   { kind: 'always' } | { kind: 'schedule', days: [1..7 Monday..Sunday], from: 'HH:MM', to: 'HH:MM' },
 //     until:  seconds since epoch, or null,
 //     action: { kind: 'block' | 'allow' } | { kind: 'limit', down, up },   limits in Mbps, 0 for none
+//           | { kind: 'route', target: 'vpn:<GL tunnel id>' | 'uplink:<interface>', fallback: 'block' | 'normal' },
+//             what a route policy covers is the internet or sites; `fallback` is what happens to the
+//             traffic while the target is down: 'block' (the default) cuts it off, 'normal' lets it
+//             take the normal route
 //     tag:    who made it, e.g. 'family:3' }
 //
 // Policies apply from the top of the list down and the first match decides, so an "allow" above
@@ -16,11 +21,11 @@
 
 import { fail, valid } from 'zeeli.common';
 import * as nft from 'zeeli.nftpolicy';
-import { mutate, status as applyStatus, sys } from 'zeeli.policyapply';
+import { mutate, resolveTargets, status as applyStatus, sys, targetConfig } from 'zeeli.policyapply';
 import * as store from 'zeeli.store';
 
 const WHAT = ['internet', 'everything', 'sites', 'network'];
-const ACTIONS = ['block', 'allow', 'limit'];
+const ACTIONS = ['block', 'allow', 'limit', 'route'];
 const MAX_MBPS = 10000;
 const MAX_PAUSE_MINUTES = 7 * 24 * 60;
 
@@ -52,6 +57,10 @@ function show(p, active) {
 	if (p.action.kind == 'limit') {
 		out.action.down = p.action.down ?? 0;
 		out.action.up = p.action.up ?? 0;
+	}
+	if (p.action.kind == 'route') {
+		out.action.target = p.action.target;
+		out.action.fallback = p.action.fallback;
 	}
 	return out;
 }
@@ -118,8 +127,19 @@ function checkWhen(raw) {
 	return { when: { kind: 'schedule', days: sort(days), from: raw.from, to: raw.to } };
 }
 
-function checkAction(raw, what, who) {
+/** A route policy: through what, and what happens while that is down. `isNew` is false for a target the policy already had. */
+function checkRoute(raw, what, c, isNew) {
+	if (what.kind != 'internet' && what.kind != 'sites') return fail('Routing covers the internet or chosen sites, not everything or another network.');
+	if (!store.isRouteTarget(raw.target)) return fail('Choose a VPN tunnel or an internet connection to route through.');
+	const fallback = raw.fallback ?? 'block';
+	if (fallback != 'block' && fallback != 'normal') return fail('While the target is down, the traffic is either blocked or takes the normal route.');
+	if (isNew && !length(filter(targetConfig(c), (t) => t.id == raw.target))) return fail('The router has no such VPN tunnel or internet connection.');
+	return { action: { kind: 'route', target: raw.target, fallback } };
+}
+
+function checkAction(raw, what, who, c, isNew) {
 	if (!isObject(raw) || index(ACTIONS, raw.kind) < 0) return fail('Choose what the policy does.');
+	if (raw.kind == 'route') return checkRoute(raw, what, c, isNew);
 	if (raw.kind != 'limit') return { action: { kind: raw.kind } };
 	for (let key in ['down', 'up']) {
 		const v = raw[key] ?? 0;
@@ -130,6 +150,14 @@ function checkAction(raw, what, who) {
 	if (what.kind != 'internet' && what.kind != 'everything') return fail('A speed limit covers all of a device’s traffic, not one site or network.');
 	if (length(filter(who, (w) => w.type == 'network'))) return fail('A speed limit is set per device, so it can’t be for a whole network.');
 	return { action: { kind: 'limit', down, up } };
+}
+
+/** How many different targets, with their fallbacks, the route policies other than `except` use, plus this action's. */
+function routeSlots(policies, except, action) {
+	const keys = [];
+	for (let p in policies) if (p.action.kind == 'route' && p.id != except) push(keys, `${p.action.target}/${p.action.fallback}`);
+	if (action.kind == 'route') push(keys, `${action.target}/${action.fallback}`);
+	return length(uniq(keys));
 }
 
 /**
@@ -148,8 +176,12 @@ function build(c, args, base) {
 	if (what.error) return what;
 	const when = checkWhen(raw('when', base.when));
 	if (when.error) return when;
-	const action = checkAction(raw('action', base.action), what.what, who.who);
+	// a target that has since gone is only refused when the policy is pointed at it, so the rest of the policy stays editable
+	const newTarget = isObject(args.action) && args.action.target != base.action.target;
+	const action = checkAction(raw('action', base.action), what.what, who.who, c, newTarget);
 	if (action.error) return action;
+	const slots = routeSlots(store.readPolicies(c), base.id, action.action);
+	if (slots > store.LIMITS.routes) return fail(`Policies can route through up to ${store.LIMITS.routes} different targets (counting what happens while one is down).`);
 
 	let until = base.until;
 	if (args.until != null) {
@@ -194,6 +226,17 @@ function list() {
 	const c = store.open();
 	const s = applyStatus(c);
 	return { policies: map(live(c), (p) => show(p, index(s.active, p.id) >= 0)), now: s.now, warnings: s.warnings };
+}
+
+/**
+ * What a route policy can send traffic through, for the console to offer: GL's VPN tunnels by
+ * name and the internet uplinks, each with whether it is up now. `name` is what a sentence says
+ * ("UK VPN"), `label` what a list says ("UK VPN (WireGuard)").
+ */
+function routeTargets() {
+	const c = store.open();
+	const found = resolveTargets(c, null);
+	return { targets: map(filter(targetConfig(c), (t) => found[t.id]), (t) => ({ id: t.id, kind: t.kind, name: t.name, label: t.label, up: found[t.id].up })) };
 }
 
 function status() {
@@ -290,4 +333,4 @@ function apply() {
 }
 
 // this ucode needs exports listed rather than marked inline
-export { list, status, create, update, remove, reorder, pause, apply };
+export { list, status, create, update, remove, reorder, pause, apply, routeTargets };

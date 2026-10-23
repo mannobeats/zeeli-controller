@@ -1,0 +1,97 @@
+table inet zeeli_check {
+# Written by the Zeeli agent from your policies. Changes made here are overwritten.
+
+	set zeeli_g_a1b2c3 {
+		type ether_addr
+		elements = {
+			02:5e:e1:10:14:c8,
+			02:5e:e1:17:2b:c1,
+			02:5e:e1:24:33:d0,
+		}
+	}
+
+	set zeeli_c_000007 {
+		type ether_addr
+		elements = {
+			02:5e:e1:31:90:f4,
+		}
+	}
+
+	set zeeli_c_000009 {
+		type ether_addr
+		elements = {
+			02:5e:e1:31:90:f4,
+		}
+	}
+
+	set zeeli_s4_000009 {
+		type ipv4_addr
+		size 4096
+		timeout 3600s
+		flags timeout
+	}
+
+	set zeeli_s6_000009 {
+		type ipv6_addr
+		size 4096
+		timeout 3600s
+		flags timeout
+	}
+
+	chain zeeli_p_000001 {
+		ether saddr @zeeli_g_a1b2c3 oifname { "eth0", "eth2", "sta1" } ct direction original counter drop
+		ether saddr @zeeli_g_a1b2c3 oifname { "wgclient1" } ct direction original counter drop
+	}
+
+	chain zeeli_p_000007 {
+		ether saddr @zeeli_c_000007 fib daddr type != { local, broadcast, multicast } meta mark and 0x0f000000 == 0x00000000 counter meta mark set meta mark or 0x02001000
+	}
+
+	chain zeeli_p_000008 {
+		ether saddr @zeeli_g_a1b2c3 fib daddr type != { local, broadcast, multicast } meta mark and 0x0f000000 == 0x00000000 counter meta mark set meta mark or 0x01000000
+	}
+
+	chain zeeli_p_000009 {
+		ether saddr @zeeli_c_000009 ip daddr @zeeli_s4_000009 fib daddr type != { local, broadcast, multicast } meta mark and 0x0f000000 == 0x00000000 counter meta mark set meta mark or 0x03001000
+		ether saddr @zeeli_c_000009 ip6 daddr @zeeli_s6_000009 fib daddr type != { local, broadcast, multicast } meta mark and 0x0f000000 == 0x00000000 counter meta mark set meta mark or 0x03001000
+	}
+
+	chain zeeli_k_000007 {
+		meta mark and 0x0f000000 == 0x02000000 oifname { "eth0", "eth2", "sta1" } counter drop
+	}
+
+	chain zeeli_k_000008 {
+	}
+
+	chain zeeli_k_000009 {
+	}
+
+	chain zeeli_d_000009 {
+		ether saddr @zeeli_c_000009 udp dport 53 redirect to :53
+		ether saddr @zeeli_c_000009 tcp dport 53 redirect to :53
+	}
+
+	chain zeeli_dns {
+		type nat hook prerouting priority -101; policy accept;
+		jump zeeli_d_000009
+	}
+
+	chain zeeli_route {
+		type filter hook prerouting priority -151; policy accept;
+		jump zeeli_p_000007
+		jump zeeli_p_000008
+		jump zeeli_p_000009
+	}
+
+	chain zeeli_forward {
+		type filter hook forward priority -1; policy accept;
+		jump zeeli_k_000007
+		jump zeeli_k_000008
+		jump zeeli_k_000009
+		jump zeeli_p_000001
+	}
+
+	chain zeeli_rev {
+		counter comment "zeeli-rev:b84abd93"
+	}
+}

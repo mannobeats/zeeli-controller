@@ -24,7 +24,7 @@ interface P {
   what: { kind: string; sites?: string[]; network?: string };
   when: { kind: string; days?: number[]; from?: string; to?: string };
   until: number | null;
-  action: { kind: string; down?: number; up?: number };
+  action: { kind: string; down?: number; up?: number; target?: string; fallback?: string };
   tag: string;
 }
 
@@ -35,6 +35,14 @@ const MAC = /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/;
 const DOMAIN = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/;
 const LIMITS = { groups: 64, members: 256, policies: 128, who: 32, sites: 50 };
 const KIB_PER_MBPS = 1e6 / 8 / 1024;
+
+/** What a route policy can use on the demo router: a WireGuard tunnel from the GL panel, and the uplinks (Ethernet 2 isn’t plugged in). */
+const TARGETS = [
+  { id: 'vpn:10101', kind: 'vpn', name: 'UK VPN', label: 'UK VPN (WireGuard)', up: true },
+  { id: 'uplink:wan', kind: 'uplink', name: 'Ethernet 1', label: 'Ethernet 1', up: true },
+  { id: 'uplink:secondwan', kind: 'uplink', name: 'Ethernet 2', label: 'Ethernet 2', up: false },
+] as const;
+const TARGET = /^(vpn:[0-9]{1,9}|uplink:[a-z][a-z0-9_]{0,31})$/;
 
 const now = () => Math.floor(Date.now() / 1000);
 const fail = (error: string) => ({ error });
@@ -94,8 +102,18 @@ function seedStore(s: MockState): Store {
         until: now() + 42 * 60,
         tag: `pause:${tv}`,
       },
+      {
+        ...base,
+        id: '100004',
+        name: 'TV via UK VPN',
+        order: 40,
+        who: [{ type: 'client', id: tv }],
+        what: { kind: 'internet' },
+        when: { kind: 'always' },
+        action: { kind: 'route', target: 'vpn:10101', fallback: 'block' },
+      },
     ],
-    next: 0x100004,
+    next: 0x100005,
     limited: new Set(),
   };
 }
@@ -227,8 +245,22 @@ function checkWhen(raw: P['when']): Checked<P['when']> {
   return { value: { kind: 'schedule', days, from: raw.from, to: raw.to } };
 }
 
-function checkAction(raw: P['action'], what: P['what'], who: P['who']): Checked<P['action']> {
-  if (!['block', 'allow', 'limit'].includes(raw.kind)) return fail('Choose what the policy does.');
+/** `known` is false for an action kept from before, which may name a target that has since gone. */
+function checkRoute(raw: P['action'], what: P['what'], known: boolean): Checked<P['action']> {
+  if (!['internet', 'sites'].includes(what.kind))
+    return fail('Routing covers the internet or chosen sites, not everything or another network.');
+  const target = raw.target;
+  if (typeof target !== 'string' || !TARGET.test(target)) return fail('Choose a VPN tunnel or an internet connection to route through.');
+  const fallback = raw.fallback ?? 'block';
+  if (fallback !== 'block' && fallback !== 'normal')
+    return fail('While the target is down, the traffic is either blocked or takes the normal route.');
+  if (known && !TARGETS.some((t) => t.id === target)) return fail('The router has no such VPN tunnel or internet connection.');
+  return { value: { kind: 'route', target, fallback } };
+}
+
+function checkAction(raw: P['action'], what: P['what'], who: P['who'], known: boolean): Checked<P['action']> {
+  if (!['block', 'allow', 'limit', 'route'].includes(raw.kind)) return fail('Choose what the policy does.');
+  if (raw.kind === 'route') return checkRoute(raw, what, known);
   if (raw.kind !== 'limit') return { value: { kind: raw.kind } };
   const down = raw.down ?? 0;
   const up = raw.up ?? 0;
@@ -257,7 +289,7 @@ function buildPolicy(st: Store, a: Args, base: P): P | { error: string } {
   if ('error' in what) return what;
   const when = checkWhen((a.when ?? base.when) as P['when']);
   if ('error' in when) return when;
-  const action = checkAction((a.action ?? base.action) as P['action'], what.value, who.value);
+  const action = checkAction((a.action ?? base.action) as P['action'], what.value, who.value, a.action !== undefined);
   if ('error' in action) return action;
   const until = checkUntil(a.until, base.until);
   if ('error' in until) return until;
@@ -440,6 +472,7 @@ const policyHandlers: Record<string, Handler> = {
     apply(s);
     return { applied: 'none', warnings: [] };
   },
+  'zeeli:policies.route_targets': () => ({ targets: clone([...TARGETS]) }),
   'zeeli:policies.status': (s) => {
     apply(s);
     const t = now();

@@ -18,8 +18,10 @@ test('policies read as sentences, with what is applying marked', async () => {
   expect(rows[0]?.textContent).toContain('Block Kids from the internet every day 22:00–07:00');
   expect(rows[1]?.textContent).toContain('Block Kids from tiktok.com and tiktokv.com');
   expect(rows[2]?.textContent).toMatch(/Block Living-Room-TV from the internet until \S/);
+  expect(rows[3]?.textContent).toContain('Route Living-Room-TV through UK VPN');
   expect(within(rows[1] as HTMLElement).getByText('Active')).toBeTruthy();
-  expect(screen.getByText(/3 policies, \d applying now/)).toBeTruthy();
+  expect(within(rows[3] as HTMLElement).getByText('Active')).toBeTruthy();
+  expect(screen.getByText(/4 policies, \d applying now/)).toBeTruthy();
 });
 
 test('a policy switches off and on from its row', async () => {
@@ -137,6 +139,50 @@ test('choosing a speed limit hides what to cover and the router’s complaint sh
   expect(preview(s)).toBe('Limit Kids to 5 Mbps down, 1 up');
   await user.click(s.getByRole('button', { name: 'Create policy' }));
   await expectToast('Created Limit Kids to 5 Mbps down, 1 up');
+});
+
+test('a route is built from a target and what happens when it is down', async () => {
+  const user = await renderPage(<PoliciesPage />);
+  await table();
+  await user.click(screen.getByRole('button', { name: 'New policy' }));
+  const s = await sheet();
+  await user.click(s.getByRole('button', { name: 'Route through…' }));
+  expect(preview(s)).toBe('Route Kids through UK VPN');
+  const picker = s.getByLabelText('Route through') as HTMLSelectElement;
+  expect([...picker.options].map((o) => o.textContent)).toEqual(['UK VPN (WireGuard)', 'Ethernet 1', 'Ethernet 2 (down)']);
+  expect(s.queryByRole('button', { name: 'Another network' })).toBeNull();
+  expect(s.queryByRole('button', { name: 'Everything' })).toBeNull();
+  expect(s.getByText(/their traffic stops while it’s down/)).toBeTruthy();
+  await user.selectOptions(picker, 'uplink:secondwan');
+  expect(preview(s)).toBe('Route Kids through Ethernet 2');
+  await user.click(s.getByRole('button', { name: 'Use the normal connection' }));
+  expect(s.getByText(/takes the normal route while it’s down/)).toBeTruthy();
+  await user.click(s.getByRole('button', { name: 'Specific sites' }));
+  fireEvent.change(s.getByLabelText(/^Sites, one per line/), { target: { value: 'netflix.com' } });
+  expect(preview(s)).toBe('Route Kids to netflix.com through Ethernet 2');
+  await user.click(s.getByRole('button', { name: 'Create policy' }));
+  await expectToast(/^Created Route Kids to netflix\.com/);
+  const made = (await api.policies.list()).policies.find((p) => p.action.kind === 'route' && p.action.target === 'uplink:secondwan');
+  expect(made).toMatchObject({ what: { kind: 'sites', sites: ['netflix.com'] }, action: { fallback: 'normal' } });
+  expect(within(await rowOf('netflix.com')).getByText('Ethernet 2 is down')).toBeTruthy();
+});
+
+test('a route whose target is down says so in its row: blocked, or on the normal route', async () => {
+  const tv = (await api.policies.list()).policies.find((p) => p.name === 'TV via UK VPN');
+  await api.policies.update(tv?.id ?? '', { action: { kind: 'route', target: 'uplink:secondwan', fallback: 'block' } });
+  await renderPage(<PoliciesPage />);
+  const row = (await table()).getAllByRole('row').find((r) => r.textContent?.includes('Route Living-Room-TV through Ethernet 2'));
+  expect(within(row as HTMLElement).getByText('Blocked: Ethernet 2 is down')).toBeTruthy();
+});
+
+test('with no VPN tunnel the sheet points to the Tunnels page', async () => {
+  vi.spyOn(api.policies, 'routeTargets').mockResolvedValue([]);
+  const user = await renderPage(<PoliciesPage />);
+  await table();
+  await user.click(screen.getByRole('button', { name: 'New policy' }));
+  const s = await sheet();
+  await user.click(s.getByRole('button', { name: 'Route through…' }));
+  expect(s.getByRole('button', { name: 'Tunnels' })).toBeTruthy();
 });
 
 test('a policy that blocks another network picks it from the list', async () => {

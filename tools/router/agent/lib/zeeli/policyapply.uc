@@ -7,7 +7,8 @@
 //      policy chains on the running firewall when only a schedule or an expiry changed
 //   4. hands the domains of "sites" policies to dnsmasq
 //   5. sets per-device speed limits through the firmware's own gl_eqos
-//   6. ends the connections of devices that just became blocked
+//   6. ends the connections of devices that just became blocked or got a new route
+//   7. keeps the ip rules and routing tables of "route through" policies that use an uplink
 // Writes from the console call it straight away; `tick` calls it every 30 seconds so
 // schedules and pauses start and end on time with the console closed.
 'use strict';
@@ -182,6 +183,74 @@ function locked(fn) {
 	return result;
 }
 
+/* ---------- route targets: GL's VPN tunnels and the internet uplinks ---------- */
+
+const UPLINK_NAMES = { wan: 'Ethernet 1', secondwan: 'Ethernet 2', wwan: 'Repeater', tethering: 'Tethering' };
+const uplinkLabel = (name) => UPLINK_NAMES[name] ?? (match(name, /^modem/) ? 'Cellular' : name);
+
+/** GL marks the traffic of VPN instance wgclient<n> 0x<n>000 and ovpnclient<n> 0x<9+n>000 (route_policy_func.sh). */
+function vpnMark(via) {
+	const m = match(via, /^(wgclient|ovpnclient)([1-5])$/);
+	return m ? (m[1] == 'wgclient' ? 0 : 0x9000) + int(m[2], 10) * 0x1000 : null;
+}
+
+/**
+ * What a route policy can send traffic through, from the router's settings alone: GL's VPN
+ * tunnels (the `rule` sections of route_policy that name a VPN instance in `via`) and the uplinks
+ * kmwan manages. A tunnel is named by its GL tunnel id, so deleting and re-adding tunnels in GL
+ * can't point a policy at another one.
+ */
+function targetConfig(c) {
+	const found = [];
+	c.foreach('route_policy', 'rule', (s) => {
+		const mark = vpnMark(s.via ?? '');
+		const id = `vpn:${s.tunnel_id}`;
+		if (mark == null || !store.isRouteTarget(id) || length(filter(found, (t) => t.id == id))) return;
+		const name = substr(trim(s.name ?? ''), 0, 40) || 'VPN tunnel';
+		push(found, { id, kind: 'vpn', name, label: `${name} (${match(s.via, /^wg/) ? 'WireGuard' : 'OpenVPN'})`, iface: s.via, mark, enabled: s.enabled != '0' });
+	});
+	c.foreach('kmwan', 'member', (s) => {
+		const id = `uplink:${s.interface}`;
+		if (!store.isRouteTarget(id) || s.disabled == '1' || (s.addr_type ?? '4') != '4') return;
+		push(found, { id, kind: 'uplink', name: uplinkLabel(s.interface), label: uplinkLabel(s.interface), iface: s.interface, mark: 0, enabled: true });
+	});
+	return found;
+}
+
+function interfaceStatus(name) {
+	const r = sys.run(['ubus', 'call', `network.interface.${name}`, 'status']);
+	if (r.code != 0) return null;
+	try {
+		return json(r.stdout);
+	} catch (e) {
+		return null;
+	}
+}
+
+const isDevice = (v) => type(v) == 'string' && match(v, /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$/) != null;
+const isAddress = (v) => type(v) == 'string' && match(v, /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/) != null;
+
+/** The IPv4 default route's gateway in netifd's interface status, or null. */
+function gatewayOf(status) {
+	for (let r in status?.route ?? []) if (r.target == '0.0.0.0' && r.mask == 0 && isAddress(r.nexthop) && r.nexthop != '0.0.0.0') return r.nexthop;
+	return null;
+}
+
+/**
+ * The targets in `only` (all of them when it is null) with their state: whether the interface is
+ * up, its device and gateway. Asks netifd about each one, so ask only about what is needed.
+ */
+function resolveTargets(c, only) {
+	const found = {};
+	for (let t in targetConfig(c)) {
+		if (only && index(only, t.id) < 0) continue;
+		const st = t.enabled ? interfaceStatus(t.iface) : null;
+		const dev = st?.l3_device ?? (t.kind == 'vpn' ? t.iface : null);
+		found[t.id] = { kind: t.kind, name: t.name, label: t.label, up: st?.up == true, dev: isDevice(dev) ? dev : null, gw: gatewayOf(st), mark: t.mark };
+	}
+	return found;
+}
+
 /* ---------- input ---------- */
 
 /** Zones that count as "the internet": those that masquerade, except the overlay networks. */
@@ -202,12 +271,16 @@ function zoneMap(c) {
 }
 
 function gather(c) {
+	const policies = store.readPolicies(c);
+	const wanted = map(filter(policies, (p) => p.action.kind == 'route'), (p) => p.action.target);
 	return {
 		groups: store.readGroups(c),
-		policies: store.readPolicies(c),
+		policies,
 		zones: zoneMap(c),
 		internet: internetZones(c),
 		now: nft.clock(sys.now(), sys.breakdown),
+		targets: resolveTargets(c, wanted),
+		ipv6: c.get('glipv6', 'globals', 'enabled') == '1',
 	};
 }
 
@@ -260,6 +333,9 @@ function removeOrphans(result) {
 /** Reload the firewall and say whether it came back with `rev` loaded. */
 const reloadedWith = (rev) => (sys.reload('firewall') ?? 0) == 0 && liveRevision() == rev;
 
+/** Does the file declare any policy chains of ours, or can the firewall do without it? */
+const hasChains = (result) => length(result.chains) + length(result.routes) > 0;
+
 /**
  * Make the firewall match `text`. Returns 'none', 'live' or 'reload', or { error }. Success is
  * read back from the live ruleset (the file's revision), not assumed from an exit code. If a
@@ -271,8 +347,8 @@ function applyFirewall(c, result, text, state) {
 	const old = readfile(path);
 	const rev = nft.revisionIn(text);
 	const loaded = old != null && liveRevision() == nft.revisionIn(old);
-	if (text == old && (loaded || !length(result.chains))) return 'none';
-	if (old == null && !length(result.chains)) return 'none';
+	if (text == old && (loaded || !hasChains(result))) return 'none';
+	if (old == null && !hasChains(result)) return 'none';
 	if (state.failed?.text == text && sys.now() - state.failed.at < RETRY_SECONDS)
 		return fail('The firewall didn’t take these policies a moment ago, so the router is waiting before it tries again.');
 
@@ -458,6 +534,72 @@ function endConnections(macs) {
 		}
 }
 
+/* ---------- routing through an uplink: ip rules and tables ---------- */
+
+// Slot n (1 to 15, see zeeli.nftpolicy) gets table 7700+n and two ip rules for its mark: one at
+// preference 5800+n that lets the routes the main table has for a destination other than "anywhere"
+// win (so the LAN, other networks and the uplinks' own subnets stay reachable), and one at 5820+n
+// that sends the rest to the slot's table. Both sit between Tailscale's rules (5210 to 5270) and GL's
+// VPN rules (6000). If the table has no route (the uplink is down) the lookup finds nothing and the
+// packet falls through to the main table; the drop rule in the firewall file handles "block".
+const SUPPRESS_PREF = 5800;
+const LOOKUP_PREF = 5820;
+const SLOT_MASK = '0x0f000000';
+
+const markHex = (n) => sprintf('0x%08x', n);
+
+function wantedRules(uplinks) {
+	const rules = [];
+	for (let u in uplinks) {
+		push(rules, { pref: SUPPRESS_PREF + u.slot, mark: u.mark, table: 'main', suppress: true });
+		push(rules, { pref: LOOKUP_PREF + u.slot, mark: u.mark, table: `${u.table}`, suppress: false });
+	}
+	return rules;
+}
+
+const ruleKey = (r) => `${r.pref} ${r.mark} ${r.table} ${r.suppress ? 's' : ''}`;
+
+/** Our ip rules as the kernel has them, from `ip -4 rule show`. */
+function currentRules() {
+	const found = [];
+	for (let line in split(sys.run(['ip', '-4', 'rule', 'show']).stdout, '\n')) {
+		const m = match(line, /^(58[0-3][0-9]):\s+from all fwmark 0x([0-9a-f]+)\/0xf000000 lookup (\S+)( suppress_prefixlength 0)?/);
+		if (m) push(found, { pref: int(m[1], 10), mark: int(m[2], 16), table: m[3], suppress: m[4] != null });
+	}
+	return found;
+}
+
+/**
+ * Make the kernel's rules and the slots' tables match `result.uplinks`. Idempotent, so every
+ * pass can run it: that is also how the tables come back after the uplink's gateway changes or
+ * GL reloads the network. Returns warnings.
+ */
+function syncRoutes(result, state) {
+	const warnings = [];
+	const want = wantedRules(result.uplinks);
+	if (!length(want) && !length(state.rules ?? []) && !length(state.tables ?? [])) return warnings;
+
+	const have = currentRules();
+	const wantKeys = map(want, ruleKey), haveKeys = map(have, ruleKey);
+	for (let r in have) if (index(wantKeys, ruleKey(r)) < 0) sys.run(['ip', '-4', 'rule', 'del', 'pref', `${r.pref}`]);
+	for (let r in want) {
+		if (index(haveKeys, ruleKey(r)) >= 0) continue;
+		const add = sys.run(['ip', '-4', 'rule', 'add', 'pref', `${r.pref}`, 'fwmark', `${markHex(r.mark)}/${SLOT_MASK}`, 'lookup', r.table, ...(r.suppress ? ['suppress_prefixlength', '0'] : [])]);
+		if (add.code != 0) push(warnings, 'The router wouldn’t add a routing rule for a route-through policy.');
+	}
+
+	for (let u in result.uplinks) {
+		const via = isAddress(u.gw) ? ['via', u.gw] : [];
+		const r = sys.run(['ip', '-4', 'route', 'replace', 'default', ...via, 'dev', u.dev, 'table', `${u.table}`]);
+		if (r.code != 0) push(warnings, `The router couldn’t route through ${u.target}.`);
+	}
+	const tables = map(result.uplinks, (u) => u.table);
+	for (let t in state.tables ?? []) if (index(tables, t) < 0) sys.run(['ip', '-4', 'route', 'flush', 'table', `${t}`]);
+	state.rules = wantKeys;
+	state.tables = tables;
+	return warnings;
+}
+
 /* ---------- the whole job ---------- */
 
 /**
@@ -475,13 +617,18 @@ function reconcile(c) {
 		return applied;
 	}
 	delete state.failed;
+	const routing = syncRoutes(result, state);
 	syncSites(c, result);
 	const due = dueLookups(result, state, applied == 'reload');
-	const warnings = [...result.warnings, ...syncLimits(c, result)];
+	const warnings = [...result.warnings, ...routing, ...syncLimits(c, result)];
 
 	const fresh = filter(result.blocked, (mac) => index(state.blocked, mac) < 0);
-	if (length(fresh)) endConnections(fresh);
+	// a device whose route changed keeps its old connections otherwise, now with the wrong source address
+	const was = state.routed ?? {};
+	const rerouted = filter(uniq([...keys(was), ...keys(result.routed)]), (mac) => was[mac] != result.routed[mac]);
+	if (length(fresh) || length(rerouted)) endConnections(uniq([...fresh, ...rerouted]));
 	state.blocked = result.blocked;
+	state.routed = result.routed;
 	saveState(state);
 
 	return { applied, warnings, limits: result.limits, blocked: result.blocked, active: result.active, due };
@@ -587,3 +734,4 @@ function status(c) {
 
 // this ucode needs exports listed rather than marked inline
 export { sys, reconcile, mutate, tick, serve, status, includePath, parseNeighbours, parseZoneDevices, sandboxAnswer };
+export { targetConfig, resolveTargets };

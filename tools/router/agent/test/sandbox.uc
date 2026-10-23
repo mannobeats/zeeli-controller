@@ -16,7 +16,7 @@ const normal = sandboxAnswer;
 function reset() {
 	const fixtures = `${getenv('ZEELI_AGENT')}/test/fixtures/be9300`;
 	writefile(`${paths.confdir}/zeeli`, '');
-	for (let file in ['dhcp', 'firewall', 'network']) writefile(`${paths.confdir}/${file}`, readfile(`${fixtures}/${file}`));
+	for (let file in ['dhcp', 'firewall', 'network', 'kmwan', 'route_policy']) writefile(`${paths.confdir}/${file}`, readfile(`${fixtures}/${file}`));
 	unlink(`${paths.confdir}/qos`);
 	unlink(includePath());
 	unlink(`${paths.state}/policies.json`);

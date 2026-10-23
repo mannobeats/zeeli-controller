@@ -32,7 +32,30 @@ export type PolicyWhat =
 
 export type PolicyWhen = { kind: 'always' } | { kind: 'schedule'; days: number[]; from: string; to: string };
 
-export type PolicyAction = { kind: 'block' } | { kind: 'allow' } | { kind: 'limit'; down: number; up: number };
+/**
+ * What a route policy does while its target is down: `block` cuts the traffic off so it can’t leak
+ * out another way, `normal` lets it take the normal route until the target is back.
+ */
+export type RouteFallback = 'block' | 'normal';
+
+export type PolicyAction =
+  | { kind: 'block' }
+  | { kind: 'allow' }
+  | { kind: 'limit'; down: number; up: number }
+  /** Send the traffic through one VPN tunnel or internet uplink; `target` is a `RouteTarget` id. */
+  | { kind: 'route'; target: string; fallback: RouteFallback };
+
+/** Something a route policy can send traffic through: a VPN tunnel set up in the GL panel, or an internet uplink. */
+export interface RouteTarget {
+  /** `vpn:<GL tunnel id>` or `uplink:<interface>`. */
+  id: string;
+  kind: 'vpn' | 'uplink';
+  /** What a sentence says: "UK VPN", "Ethernet 2". */
+  name: string;
+  /** What a list says: "UK VPN (WireGuard)", "Ethernet 2". */
+  label: string;
+  up: boolean;
+}
 
 export interface Policy {
   id: string;
@@ -104,6 +127,8 @@ export const policies = (t: Transport) => {
   return {
     groups,
     list: () => t.zeeli<PolicyList>('policies', 'list'),
+    /** The VPN tunnels and internet uplinks a route policy can use, with whether each is up. */
+    routeTargets: async (): Promise<RouteTarget[]> => (await t.zeeli<{ targets: RouteTarget[] }>('policies', 'route_targets')).targets,
     create: async (p: PolicyInput): Promise<Policy> => (await t.zeeli<{ policy: Policy }>('policies', 'create', p, 60_000)).policy,
     update: updatePolicy,
     remove: removePolicy,
