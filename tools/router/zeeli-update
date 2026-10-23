@@ -25,8 +25,12 @@ fail() {
   exit 1
 }
 
+# one install at a time; a lock left by a run that was killed goes after ten minutes
+LOCK=/tmp/zeeli-update.lock
+find /tmp -maxdepth 1 -name zeeli-update.lock -mmin +10 -exec rm -rf {} \; 2>/dev/null
+mkdir "$LOCK" 2>/dev/null || fail "Another Zeeli install is already running. Try again in a minute."
 TMP=$(mktemp -d /tmp/zeeli-update.XXXXXX)
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP" "$LOCK"' EXIT
 
 download() {
   uclient-fetch -q -T 30 -O "$TMP/$1" "$URL/$1" 2>/dev/null || fail "Couldn’t download $1 from GitHub. Check the router’s internet connection."
@@ -37,6 +41,8 @@ download() {
 apply() {
   mkdir "$TMP/pkg"
   tar -C "$TMP/pkg" -xzf "$1" || fail "The package is damaged."
+  # files run as root, so root owns them, whoever packed the archive
+  chown -R 0:0 "$TMP/pkg"
   [ -f "$TMP/pkg/www/index.html" ] && [ -f "$TMP/pkg/VERSION" ] || fail "The package is missing files."
 
   rm -rf "$DEST.new" "$DEST.old"
@@ -63,7 +69,7 @@ agent() {
   SERVICES=
   for f in $(cat "$MANIFEST" 2>/dev/null); do
     echo "$NEW" | grep -qx "$f" && continue
-    case "$f" in /etc/init.d/*) "$f" stop; "$f" disable ;; esac
+    case "$f" in /etc/init.d/*) [ ! -x "$f" ] || { "$f" stop; "$f" disable; } || true ;; esac
     rm -f "$f"
     CHANGED=1
   done
@@ -105,22 +111,23 @@ case "${1:-}" in
     apply "$2"
     ;;
   remove)
+    # services first, so nothing writes while the rest goes; the manifest goes last
     for f in $(cat /usr/share/zeeli/manifest 2>/dev/null); do
-      case "$f" in /etc/init.d/*) "$f" stop; "$f" disable ;; esac
-      rm -f "$f"
+      case "$f" in /etc/init.d/*) [ ! -x "$f" ] || { "$f" stop; "$f" disable; } || true ;; esac
     done
+    for f in $(cat /usr/share/zeeli/manifest 2>/dev/null); do rm -f "$f"; done
     # what the agent wrote into the router's own settings: the policies' firewall include and
     # the dnsmasq sets that fill it. Zeeli's WiFi networks stay; they're plain WiFi networks.
-    uci -q delete firewall.zeeli_policies
-    for s in $(uci -q show dhcp | sed -n "s/^dhcp\.\(zeeli_[a-z0-9_]*\)=ipset$/\1/p"); do uci -q delete "dhcp.$s"; done
+    uci -q delete firewall.zeeli_policies || true
+    for s in $(uci -q show dhcp | sed -n "s/^dhcp\.\(zeeli_[a-z0-9_]*\)=ipset$/\1/p"); do uci -q delete "dhcp.$s" || true; done
     uci commit firewall
     uci commit dhcp
     rm -rf "$DEST" /usr/share/zeeli /usr/share/ucode/zeeli /etc/zeeli "$ACL" "$SELF" \
       /usr/share/gl-upload.d/zeeli /usr/share/gl-download.d/zeeli /tmp/zeeli /var/lib/zeeli
-    /etc/init.d/firewall reload
-    /etc/init.d/dnsmasq reload
-    /etc/init.d/rpcd restart
-    /etc/init.d/nginx reload
+    /etc/init.d/firewall reload || true
+    /etc/init.d/dnsmasq reload || true
+    /etc/init.d/rpcd restart || true
+    /etc/init.d/nginx reload || true
     echo "Removed Zeeli Controller. Kept: its settings (/etc/config/zeeli), history and snapshots (/overlay/zeeli) and the WiFi networks it made. Delete those too for a clean router."
     ;;
   *)

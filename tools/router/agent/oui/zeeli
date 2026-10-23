@@ -12,7 +12,8 @@ function M.call(params)
         return { err_code = -1, err_msg = "Not a Zeeli call." }
     end
     local args = type(params.args) == "table" and params.args or {}
-    local res, err = ubus.call("zeeli." .. area, method, args, 60000)
+    -- longer than the console waits for its slowest call (an install, 90 s)
+    local res, err = ubus.call("zeeli." .. area, method, args, 120000)
     if type(res) ~= "table" then
         return { err_code = -1, err_msg = "The Zeeli agent didn’t answer (" .. tostring(err or "no reply") .. ")." }
     end
