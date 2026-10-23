@@ -37,25 +37,26 @@ interface Props<T> {
   label: string;
   /** A grip column to drag rows into a new order, or to move them with the keyboard. */
   reorder?: Reorder<T>;
-  /** Rows shown before a "Show more" footer; `false` for short lists that must show whole. Reorderable tables always show every row. */
+  /** Rows drawn at a time in a scrolling list; `false` for short lists that must show whole. Reorderable tables always show every row. */
   limit?: number | false;
 }
 
 /**
  * Every list in the console. Rows are keyboard-focusable when clickable; with `bulk`,
- * each row gets a checkbox and shift-click selects a range; with `reorder`, a grip. Long lists
- * stop at `limit` rows with a footer to see more.
+ * each row gets a checkbox and shift-click selects a range; with `reorder`, a grip. A long list
+ * keeps its height and scrolls inside, drawing `limit` rows at a time as you go.
  */
 export function DataTable<T>({ rows: all, columns, rowKey, onRowClick, rowClass, selectedKey, bulk, label, reorder, ...rest }: Props<T>) {
-  // checking, shift-ranges and select-all act on the rows on screen
-  const { shown: rows, more } = useLimit(all, stepOf(rest.limit, reorder));
+  const step = stepOf(rest.limit, reorder);
+  const { shown: rows, more } = useLimit(all, step);
   const order = useReorder(rows, reorder, rowKey);
   const [checked, setChecked] = useState<Set<string>>(() => new Set());
   const anchor = useRef<number | null>(null);
-  const keys = rows.map(rowKey);
+  // select-all takes every row, drawn yet or not; ranges index into the drawn ones, which lead `all`
+  const keys = all.map(rowKey);
   const live = new Set(keys.filter((k) => checked.has(k)));
-  const picked = rows.filter((r) => live.has(rowKey(r)));
-  const allOn = rows.length > 0 && live.size === rows.length;
+  const picked = all.filter((r) => live.has(rowKey(r)));
+  const allOn = all.length > 0 && live.size === all.length;
 
   const toggle = (index: number, shift: boolean) => {
     setChecked(ticked(keys, live, index, shift, anchor.current));
@@ -67,7 +68,7 @@ export function DataTable<T>({ rows: all, columns, rowKey, onRowClick, rowClass,
   return (
     <>
       {bulk && live.size > 0 ? <BulkBar count={live.size} actions={actions} picked={picked} clear={() => setChecked(new Set())} /> : null}
-      <div className="table-wrap">
+      <div className={wrapClass(step)}>
         <table className={`data-table ${order.tableClass}`.trim()} aria-label={label}>
           <Head
             columns={columns}
@@ -102,8 +103,8 @@ export function DataTable<T>({ rows: all, columns, rowKey, onRowClick, rowClass,
             })}
           </tbody>
         </table>
+        {more}
       </div>
-      {more}
       {reorder ? (
         <div className="sr-only" aria-live="assertive">
           {order.announcement}
@@ -229,6 +230,9 @@ function Head<T>({
     </thead>
   );
 }
+
+/** A list drawn in batches keeps its height and scrolls inside the card. */
+const wrapClass = (step: number) => (Number.isFinite(step) ? 'table-wrap scroll-box' : 'table-wrap');
 
 /** A reorderable table shows every row: dragging needs them all on screen. */
 const stepOf = (limit: number | false = STEP, reorder: unknown = null) => (reorder || limit === false ? Number.POSITIVE_INFINITY : limit);

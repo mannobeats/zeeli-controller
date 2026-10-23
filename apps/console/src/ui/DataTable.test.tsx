@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { scrollToEnd } from '../test/render.tsx';
 import { DataTable } from './DataTable.tsx';
 
 interface Item {
@@ -169,15 +170,14 @@ test('a table without reorder has no grip column or announcer', () => {
   expect(document.querySelector('[aria-live]')).toBeNull();
 });
 
-test('a long list stops at its limit and shows more on request', () => {
+test('a long list scrolls inside its card and draws more rows as it scrolls', () => {
   const many = Array.from({ length: 60 }, (_, i) => ({ id: String(i), name: `Row ${i}` }));
   render(<DataTable label="Many" rows={many} rowKey={(r) => r.id} columns={[{ key: 'name', header: 'Name', cell: (r) => r.name }]} />);
+  expect(screen.getByRole('table').parentElement?.classList.contains('scroll-box')).toBe(true);
   expect(screen.queryByText('Row 25')).toBeNull();
-  expect(screen.getByText('25 of 60')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Show 25 more' }));
+  scrollToEnd();
   expect(screen.getByText('Row 49')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Show 10 more' }));
+  scrollToEnd();
   expect(screen.getByText('Row 59')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }));
-  expect(screen.queryByText('Row 25')).toBeNull();
+  expect(screen.queryByRole('button')).toBeNull();
 });

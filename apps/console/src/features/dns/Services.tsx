@@ -9,7 +9,7 @@ import { useFeedback } from '../../ui/feedback.tsx';
 import { Switch } from '../../ui/fields.tsx';
 import { facetOptions, matches } from '../../ui/filter.ts';
 import { Empty, Panel } from '../../ui/Layout.tsx';
-import { useLimit } from '../../ui/limit.tsx';
+import { ScrollBox, useLimit } from '../../ui/limit.tsx';
 
 const groupLabel = (id: string) => {
   const words = id.replace(/_/g, ' ');
@@ -80,21 +80,27 @@ export function ServicePicker({
           setGroup('');
         }}
       />
-      {[...sections].map(([label, list]) => (
-        <section key={label} className="svc-group">
-          <h3>{label}</h3>
-          <ul className="svc-grid">
-            {list.map((s) => (
-              <li key={s.id} className="svc">
-                {s.icon ? <img src={s.icon} alt="" width={20} height={20} /> : <span className="svc-blank" />}
-                <span className="name">{s.name}</span>
-                <Switch label={`Block ${s.name}`} checked={on.has(s.id)} disabled={disabled} onChange={(x) => onToggle(s, x)} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-      {rows.length ? more : <Empty>No services match.</Empty>}
+      {rows.length ? (
+        <ScrollBox label="Services">
+          {[...sections].map(([label, list]) => (
+            <section key={label} className="svc-group">
+              <h3>{label}</h3>
+              <ul className="svc-grid">
+                {list.map((s) => (
+                  <li key={s.id} className="svc">
+                    {s.icon ? <img src={s.icon} alt="" width={20} height={20} /> : <span className="svc-blank" />}
+                    <span className="name">{s.name}</span>
+                    <Switch label={`Block ${s.name}`} checked={on.has(s.id)} disabled={disabled} onChange={(x) => onToggle(s, x)} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+          {more}
+        </ScrollBox>
+      ) : (
+        <Empty>No services match.</Empty>
+      )}
     </>
   );
 }

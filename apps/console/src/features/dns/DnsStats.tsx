@@ -3,7 +3,7 @@ import { api } from '../../api/router.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { Figure } from '../../ui/Figure.tsx';
 import { Empty, Grid, Panel } from '../../ui/Layout.tsx';
-import { useLimit } from '../../ui/limit.tsx';
+import { ScrollBox, useLimit } from '../../ui/limit.tsx';
 
 import { share, trimLeading, useDeviceName } from './names.ts';
 
@@ -65,21 +65,23 @@ function TopList({ title, rows: all, tone }: { title: string; rows: [string, num
   return (
     <Panel title={title}>
       {all.length ? (
-        <ol className="toplist">
-          {rows.map(([name, n]) => (
-            <li key={name}>
-              <span className="tl-name">{name}</span>
-              <span className="tl-n num">{n.toLocaleString()}</span>
-              <span className={`tl-bar${tone ? ` ${tone}` : ''}`}>
-                <i style={{ width: `${(n / max) * 100}%` }} />
-              </span>
-            </li>
-          ))}
-        </ol>
+        <ScrollBox label={title} short>
+          <ol className="toplist">
+            {rows.map(([name, n]) => (
+              <li key={name}>
+                <span className="tl-name">{name}</span>
+                <span className="tl-n num">{n.toLocaleString()}</span>
+                <span className={`tl-bar${tone ? ` ${tone}` : ''}`}>
+                  <i style={{ width: `${(n / max) * 100}%` }} />
+                </span>
+              </li>
+            ))}
+          </ol>
+          {more}
+        </ScrollBox>
       ) : (
         <Empty>Nothing yet.</Empty>
       )}
-      {more}
     </Panel>
   );
 }

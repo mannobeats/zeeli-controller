@@ -56,6 +56,8 @@ const HEAD = 52;
 /** Devices sit in a grid inside their network; four across keeps a 100-device home readable. */
 const PER_ROW = 4;
 const NET_X = 820;
+/** Device cards are a little wider than the core ones, to fit a name, link, rate and meter. */
+const DEVICE = { width: 232, height: NODE.height } as const;
 
 /** An empty network is just its heading and a line saying so. */
 const EMPTY_HEIGHT = HEAD + 26;
@@ -63,8 +65,8 @@ const EMPTY_HEIGHT = HEAD + 26;
 const gridSize = (n: number) => {
   const cols = Math.max(2, Math.min(n, PER_ROW));
   const rows = Math.ceil(n / PER_ROW);
-  const width = PAD * 2 + cols * NODE.width + (cols - 1) * GAP;
-  return { width, height: rows ? HEAD + PAD + rows * NODE.height + (rows - 1) * GAP : EMPTY_HEIGHT };
+  const width = PAD * 2 + cols * DEVICE.width + (cols - 1) * GAP;
+  return { width, height: rows ? HEAD + PAD + rows * DEVICE.height + (rows - 1) * GAP : EMPTY_HEIGHT };
 };
 
 interface RouterView {
@@ -144,8 +146,8 @@ function buildGraph(clients: Client[], networks: Network[], r: RouterView): { no
         parentId: netId,
         extent: 'parent',
         draggable: false,
-        ...NODE,
-        position: { x: PAD + (i % PER_ROW) * (NODE.width + GAP), y: HEAD + Math.floor(i / PER_ROW) * (NODE.height + GAP) },
+        ...DEVICE,
+        position: { x: PAD + (i % PER_ROW) * (DEVICE.width + GAP), y: HEAD + Math.floor(i / PER_ROW) * (DEVICE.height + GAP) },
         data: { kind: 'device', client: c, category: categoryOf(c), port: r.portMap.get(c.mac) },
       });
     });
@@ -181,6 +183,24 @@ const CoreNode = memo(function CoreNode({ data }: NodeProps<Node<CoreData, 'core
   );
 });
 
+/** The meter's bars, tallest in the middle, like an equaliser at rest. */
+const BARS = [0.55, 0.8, 1, 0.75, 0.5];
+
+/**
+ * Five bars that rise with the device's traffic and keep moving while it flows, so a busy device
+ * reads at a glance across the map. An idle device's bars sit low and still.
+ */
+function LevelMeter({ share }: { share: number }) {
+  return (
+    <span className={`topo-eq${share < 0.05 ? ' idle' : ''}`} aria-hidden>
+      {BARS.map((b, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: the bars are fixed and never reorder
+        <i key={i} style={{ blockSize: `${Math.round(Math.max(0.16, share * b) * 100)}%` }} />
+      ))}
+    </span>
+  );
+}
+
 const DeviceNode = memo(function DeviceNode({ data }: NodeProps<Node<DeviceData, 'device'>>) {
   const c = data.client;
   const I = iconFor(c);
@@ -197,8 +217,8 @@ const DeviceNode = memo(function DeviceNode({ data }: NodeProps<Node<DeviceData,
           {c.online ? <span className="rate">{rateText(c.rx + c.tx)}</span> : null}
         </span>
       </div>
-      {/* traffic as a bar along the card's foot, instead of a wire across the map */}
-      {c.online ? <i className="topo-meter" style={{ inlineSize: `${Math.max(4, meterShare(c.rx + c.tx) * 100)}%` }} aria-hidden /> : null}
+      {/* traffic as a live level meter beside the rate, instead of a wire across the map */}
+      {c.online ? <LevelMeter share={meterShare(c.rx + c.tx)} /> : null}
     </div>
   );
 });

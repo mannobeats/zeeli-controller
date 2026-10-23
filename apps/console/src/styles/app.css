@@ -277,7 +277,12 @@ tr:hover .row-act, tr:focus-within .row-act { opacity: 1; }
 .svc .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-13); }
 .filter-clear { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-2); font-size: var(--t-13); cursor: pointer; }
 .filter-clear:hover { background: var(--hover); color: var(--ink); }
-.more-rows { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 12px 0 2px; font-size: var(--t-13); color: var(--ink-3); border-top: 1px solid var(--line); }
+.scroll-box { max-height: min(62vh, 600px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.scroll-box.short { max-height: 288px; }
+.scroll-box:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: var(--radius); }
+.scroll-box .data-table thead th { position: sticky; top: 0; z-index: 1; background: var(--panel); box-shadow: inset 0 -1px 0 var(--line); }
+.drawer .scroll-box .data-table thead th { background: var(--surface); }
+.scroll-more { height: 1px; }
 
 .btn { height: var(--h-md); padding: 0 14px; border-radius: var(--radius); border: 0; font-size: var(--t-13); font-weight: 500; line-height: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; white-space: nowrap; text-decoration: none; transition: background-color var(--t-fast), color var(--t-fast), transform var(--t-fast) var(--ease); }
 .btn:active { transform: scale(.98); }
@@ -541,7 +546,7 @@ input[type="radio"]:checked { border: 5px solid var(--brand); }
 .profile-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .profile-head h2 { font-size: var(--t-16); font-weight: 600; }
 .profile-state { font-size: var(--t-13); margin-top: 2px; font-weight: 500; }
-.profile-devices { display: flex; flex-wrap: wrap; gap: 6px; }
+.profile-devices { display: flex; flex-wrap: wrap; gap: 6px; max-height: 98px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .pdev { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: var(--radius); background: var(--inset); border: 1px solid var(--line); font-size: var(--t-13); color: var(--ink-3); max-width: 100%; }
 .pdev svg.tabler-icon { width: 14px; height: 14px; }
 .pdev span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

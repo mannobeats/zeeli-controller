@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import type { ActivityEvent, Client } from '@zeeli/router-api';
 import { afterEach, expect, test, vi } from 'vitest';
 import { api } from '../../api/router.ts';
-import { renderPage } from '../../test/render.tsx';
+import { renderPage, scrollToEnd } from '../../test/render.tsx';
 import ActivityPage from './ActivityPage.tsx';
 
 afterEach(() => {
@@ -26,14 +26,15 @@ async function stubEvents(n: number) {
 
 const items = () => within(screen.getByRole('list')).getAllByRole('listitem');
 
-test('a long log stops at 25 events and shows more on request', async () => {
+test('a long log scrolls inside its card, drawing 25 events at a time', async () => {
   await stubEvents(60);
-  const user = await renderPage(<ActivityPage />);
+  await renderPage(<ActivityPage />);
   await screen.findByRole('list');
+  expect(screen.getByRole('region', { name: 'Activity' })).toBeTruthy();
   expect(items()).toHaveLength(25);
-  await user.click(screen.getByRole('button', { name: 'Show 25 more' }));
+  scrollToEnd();
   expect(items()).toHaveLength(50);
-  await user.click(screen.getByRole('button', { name: 'Show 10 more' }));
+  scrollToEnd();
   expect(items()).toHaveLength(60);
 });
 

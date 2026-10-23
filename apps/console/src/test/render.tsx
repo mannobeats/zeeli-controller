@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, configure, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, configure, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeAll, expect } from 'vitest';
@@ -45,3 +45,8 @@ export const APPLYING = 15_000;
 /** The open side sheet (or confirm dialog), to query inside it. */
 export const sheet = async () => within(await screen.findByRole('dialog'));
 export const confirmDialog = async () => within(await screen.findByRole('alertdialog'));
+
+/** Scroll every long list to its end once, so each draws its next batch of rows. */
+export function scrollToEnd() {
+  act(() => (globalThis as unknown as { scrollToEnd: () => void }).scrollToEnd());
+}

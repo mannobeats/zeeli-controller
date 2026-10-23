@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import { beforeAll, expect, test } from 'vitest';
 import { api } from '../../api/router.ts';
-import { confirmDialog, expectToast, renderPage } from '../../test/render.tsx';
+import { confirmDialog, expectToast, renderPage, scrollToEnd } from '../../test/render.tsx';
 import { PackagesPage } from './PackagesPage.tsx';
 
 beforeAll(async () => {
@@ -23,10 +23,9 @@ test('search covers names and descriptions, and long lists page', async () => {
   expect(await screen.findByRole('button', { name: 'Available 151' })).toBeTruthy();
   await user.clear(search());
   await user.type(search(), 'kmod-demo');
-  expect(await screen.findByText('100 of 140')).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'Show 40 more' }));
+  expect(screen.queryByText('kmod-demo-140', { selector: '.name' })).toBeNull();
+  scrollToEnd();
   expect(await row('kmod-demo-140')).toBeTruthy();
-  expect(screen.queryByRole('button', { name: /more$/ })).toBeNull();
   await user.type(search(), 'zzz');
   expect(screen.getByText('No package matches “kmod-demozzz”.')).toBeTruthy();
 });

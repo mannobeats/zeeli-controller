@@ -12,7 +12,7 @@ import { useFeedback } from '../../ui/feedback.tsx';
 import { SwitchRow, TextField } from '../../ui/fields.tsx';
 import { facetOptions, matches } from '../../ui/filter.ts';
 import { Empty, PageHeader, Panel } from '../../ui/Layout.tsx';
-import { useLimit } from '../../ui/limit.tsx';
+import { ScrollBox, useLimit } from '../../ui/limit.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
 import { useDeviceName } from '../dns/names.ts';
 import { HistoryGate } from '../history/parts.tsx';
@@ -57,7 +57,7 @@ function EventList({ events, onAck, step }: { events: HistoryEvent[]; onAck?: (e
   const nameOf = useDeviceName();
   const { shown, more } = useLimit(events, step);
   return (
-    <>
+    <ScrollBox label="Events">
       <ol className="timeline">
         {shown.map((e) => {
           const { icon: Icon, tone } = EVENT_LOOK[e.kind];
@@ -86,7 +86,7 @@ function EventList({ events, onAck, step }: { events: HistoryEvent[]; onAck?: (e
         })}
       </ol>
       {more}
-    </>
+    </ScrollBox>
   );
 }
 

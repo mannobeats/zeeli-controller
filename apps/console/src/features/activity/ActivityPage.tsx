@@ -26,7 +26,7 @@ import { FilterBar } from '../../ui/FilterBar.tsx';
 import { Segmented } from '../../ui/fields.tsx';
 import { facetOptions, matches } from '../../ui/filter.ts';
 import { Empty, PageHeader, Panel } from '../../ui/Layout.tsx';
-import { useLimit } from '../../ui/limit.tsx';
+import { ScrollBox, useLimit } from '../../ui/limit.tsx';
 
 type Filter = 'all' | 'devices' | 'internet' | 'security';
 const GROUP: Record<ActivityKind, Filter> = {
@@ -159,7 +159,7 @@ function Timeline({ rows, clients }: { rows: ActivityEvent[]; clients: Client[] 
   const { shown, more } = useLimit(rows);
   const nameOf = (subject: string) => clients.find((c) => c.mac === subject)?.name ?? IFACE[subject] ?? subject;
   return (
-    <>
+    <ScrollBox label="Activity">
       <ol className="timeline">
         {shown.map((e) => {
           const [I, tone] = ICON[e.kind];
@@ -190,6 +190,6 @@ function Timeline({ rows, clients }: { rows: ActivityEvent[]; clients: Client[] 
         })}
       </ol>
       {more}
-    </>
+    </ScrollBox>
   );
 }
