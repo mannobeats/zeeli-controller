@@ -109,10 +109,19 @@ case "${1:-}" in
       case "$f" in /etc/init.d/*) "$f" stop; "$f" disable ;; esac
       rm -f "$f"
     done
-    rm -rf "$DEST" /usr/share/zeeli /usr/share/ucode/zeeli "$ACL" "$SELF"
+    # what the agent wrote into the router's own settings: the policies' firewall include and
+    # the dnsmasq sets that fill it. Zeeli's WiFi networks stay; they're plain WiFi networks.
+    uci -q delete firewall.zeeli_policies
+    for s in $(uci -q show dhcp | sed -n "s/^dhcp\.\(zeeli_[a-z0-9_]*\)=ipset$/\1/p"); do uci -q delete "dhcp.$s"; done
+    uci commit firewall
+    uci commit dhcp
+    rm -rf "$DEST" /usr/share/zeeli /usr/share/ucode/zeeli /etc/zeeli "$ACL" "$SELF" \
+      /usr/share/gl-upload.d/zeeli /usr/share/gl-download.d/zeeli /tmp/zeeli /var/lib/zeeli
+    /etc/init.d/firewall reload
+    /etc/init.d/dnsmasq reload
     /etc/init.d/rpcd restart
     /etc/init.d/nginx reload
-    echo "Removed Zeeli Controller. Its settings in /etc/config/zeeli are kept; delete that file too for a clean router."
+    echo "Removed Zeeli Controller. Kept: its settings (/etc/config/zeeli), history and snapshots (/overlay/zeeli) and the WiFi networks it made. Delete those too for a clean router."
     ;;
   *)
     fail "Usage: zeeli-update install <latest|v1.2.3> | remove"
