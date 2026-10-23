@@ -101,9 +101,9 @@ export function OwnNetworkSheet({ network, overview, labels, onClose }: Props) {
     >
       <TextField label="Network name" value={form.ssid} onChange={set('ssid')} hint="1 to 32 bytes. The name devices see." />
       <PasswordField value={form.password} onChange={set('password')} editing={editing} id={network?.id} />
-      <MloRow form={form} overview={overview} editing={editing} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />
-      <BandPicker form={form} set={set} overview={overview} current={network?.bands ?? []} locked={editing && form.mlo} />
-      <JoinFields form={form} set={set} networks={overview.lanNetworks} labels={labels} locked={editing && form.mlo} />
+      {editing ? null : <MloRow form={form} overview={overview} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />}
+      <BandPicker form={form} set={set} overview={overview} current={network?.bands ?? []} />
+      <JoinFields form={form} set={set} networks={overview.lanNetworks} labels={labels} />
       <SwitchRow label="Hide network name" hint="Devices have to type the name to join." checked={form.hidden} onChange={set('hidden')} />
       <SwitchRow
         label="Keep devices apart"
@@ -190,19 +190,7 @@ function bandNote(radio: RadioSlots | undefined, full: boolean): string {
 }
 
 /** Bands as checkboxes with each radio’s slot use. A full or missing radio is off, and says why. */
-function BandPicker({
-  form,
-  set,
-  overview,
-  current,
-  locked,
-}: {
-  form: OwnForm;
-  set: Setter;
-  overview: WifiOverview;
-  current: string[];
-  locked: boolean;
-}) {
+function BandPicker({ form, set, overview, current }: { form: OwnForm; set: Setter; overview: WifiOverview; current: string[] }) {
   const { radios, mlo } = overview;
   const toggle = (band: OwnBand, on: boolean) => {
     set('bands')(on ? OWN_BANDS.filter((b) => b === band || form.bands.includes(b)) : form.bands.filter((b) => b !== band));
@@ -217,7 +205,7 @@ function BandPicker({
         const held = current.includes(band);
         const full = Boolean(radio && radio.used >= radio.limit && !held);
         const noMlo = form.mlo && !mlo.bands.includes(band);
-        const off = !radio || radio.disabled || full || noMlo || locked;
+        const off = !radio || radio.disabled || full || noMlo;
         return (
           <label className="band-pick" key={band}>
             <input type="checkbox" checked={form.bands.includes(band)} disabled={off} onChange={(e) => toggle(band, e.target.checked)} />
@@ -236,16 +224,14 @@ function JoinFields({
   set,
   networks,
   labels,
-  locked,
 }: {
   form: OwnForm;
   set: Setter;
   networks: JoinableNetwork[];
   labels: Record<string, string>;
-  locked: boolean;
 }) {
   const only6 = form.bands.includes('6g') || form.mlo;
-  const joinable = networks.filter((n) => (locked ? n.id === form.network : !n.disabled || n.id === form.network));
+  const joinable = networks.filter((n) => !n.disabled || n.id === form.network);
   return (
     <Row2>
       <SelectField

@@ -59,12 +59,7 @@ function sections(c, config, type) {
 
 function uniq(a) {
 	const seen = {};
-	return filter(a, (x) => {
-		const k = type(x) == 'string' ? x : sprintf('%J', x);
-		if (seen[k]) return false;
-		seen[k] = true;
-		return true;
-	});
+	return filter(a, (x) => { if (seen[x]) return false; seen[x] = true; return true; });
 }
 
 function bandOrder(a, b) {
@@ -113,31 +108,37 @@ function runOrLog(argv) {
 	return { code: 0, stdout: '' };
 }
 
+/**
+ * Deleting a multi-link network needs a restart. Destroying an MLD while the router runs
+ * (`iw <mld> del`, which is also what the configurator does to a fully disabled group) panics
+ * the kernel in osif_destroy_mld_bond, seen live. So the sections go and the radios keep
+ * running them until the next boot. The file lives in RAM (paths.state), so a boot clears it.
+ */
+function restartFile() {
+	return `${paths.state}/wifi-restart-needed`;
+}
+
+function restartFor() {
+	try { return json(readfile(restartFile()) ?? 'null'); } catch (e) { return null; }
+}
+
+function markRestart(ssid) {
+	mkdir(paths.state);
+	writefile(restartFile(), sprintf('%J', uniq([...(restartFor() ?? []), ssid])));
+}
+
+const MLO_LOCKED = 'On this firmware a multi-link network can’t be changed or switched off while the router runs. Delete it and make it again.';
+
 function teardownFile() {
 	return `${paths.state}/wifi-teardown`;
 }
 
-/** Interfaces of deleted sections, which `apply` takes off the air. A multi-link network queues `{ mld, links }`. */
-function queueTeardown(entries) {
+/** Interfaces of deleted sections, which `apply` takes off the air. Never a multi-link network's: see `remove`. */
+function queueTeardown(ifnames) {
 	let queued = [];
 	try { queued = json(readfile(teardownFile()) ?? '[]') ?? []; } catch (e) { queued = []; }
 	mkdir(paths.state);
-	writefile(teardownFile(), sprintf('%J', uniq([...queued, ...filter(entries, (n) => n)])));
-}
-
-/**
- * A multi-link network goes the way GL's own `set_mlo_config` removes its guest MLD: the link
- * interfaces out of the driver and hostapd, then the MLD's netdev off its bridge and deleted.
- */
-function teardownMld(c, q, inUse) {
-	if (type(q.mld) != 'string' || !match(q.mld, MLD_NAME) || c.get('wireless', q.mld) != null) return;
-	const links = filter(q.links ?? [], (n) => type(n) == 'string' && match(n, /^wlan[0-9]+$/) && !inUse[n]
-		&& (paths.confdir || stat(`/sys/class/net/${n}`) != null));
-	for (let n in links) runOrLog(['iw', n, 'del']);
-	for (let n in links) runOrLog(['hostapd_cli', '-p', '/var/run/hostapd', '-i', 'global', 'raw', 'REMOVE', n]);
-	if (!paths.confdir && stat(`/sys/class/net/${q.mld}`) == null) return;
-	runOrLog(['ip', 'link', 'set', 'dev', q.mld, 'nomaster']);
-	runOrLog(['iw', q.mld, 'del']);
+	writefile(teardownFile(), sprintf('%J', uniq([...queued, ...filter(ifnames, (n) => n)])));
 }
 
 /**
@@ -151,7 +152,6 @@ function teardown(c) {
 	const inUse = {};
 	for (let s in sections(c, 'wireless', 'wifi-iface')) if (s.ifname) inUse[s.ifname] = true;
 	for (let n in queued) {
-		if (type(n) == 'object') { teardownMld(c, n, inUse); continue; }
 		if (type(n) != 'string' || !match(n, /^wlan[0-9]+$/) || inUse[n]) continue;
 		if (!paths.confdir && stat(`/sys/class/net/${n}`) == null) continue;
 		runOrLog(['hostapd_cli', '-p', '/var/run/hostapd', '-i', 'global', 'raw', 'REMOVE', n]);
@@ -368,6 +368,8 @@ function list() {
 		radios: map(sort(keys(devs)), (d) => ({ device: d, band: devs[d].band, disabled: devs[d].disabled, used: used(c, d), limit: LIMIT })),
 		lanNetworks: nets,
 		mlo: mloState(c),
+		restartNeeded: restartFor() != null,
+		restartFor: restartFor() ?? [],
 		internal,
 		pending: stat(pendingFile()) != null
 	};
@@ -447,11 +449,11 @@ function checkBand(c, devs, spec, own, b) {
 }
 
 /** What a multi-link network adds: WPA3 on every link, two or more bands the firmware allows, and a free MLD. */
-function checkMlo(c, spec, own) {
+function checkMlo(c, spec) {
 	if (spec.security != 'sae') return 'Multi-link networks need WPA3.';
 	if (length(spec.bands) < 2) return 'Multi-link needs at least two bands.';
 	const state = mloState(c);
-	if (!length(own) && !state.supported) return state.reason;
+	if (!state.supported) return state.reason;
 	for (let b in spec.bands) if (!(b in state.bands)) return `The router’s firmware doesn’t offer multi-link on ${BAND_NAME[b]}.`;
 	return null;
 }
@@ -464,7 +466,7 @@ function checkSpec(c, spec, own) {
 	if (type(spec.bands) != 'array' || !length(spec.bands)) return fail('Pick at least one band.');
 	for (let b in spec.bands) if (!(b in BANDS)) return fail(`Not a band: ${b}`);
 	if (length(spec.bands) != length(uniq(spec.bands))) return fail('Each band can only be listed once.');
-	e = spec.mlo ? checkMlo(c, spec, own) : null;
+	e = spec.mlo ? checkMlo(c, spec) : null;
 	if (e) return fail(e);
 	if ('6g' in spec.bands && spec.security != 'sae') return fail('6 GHz needs WPA3. Choose WPA3, or leave 6 GHz out.');
 	if (type(spec.hidden) != 'bool' || type(spec.isolate) != 'bool') return fail('Hidden and isolate must be on or off.');
@@ -653,6 +655,7 @@ function create(args) {
 	if (e) return fail(e);
 	if (args.mlo != null && type(args.mlo) != 'bool') return fail('Multi-link must be on or off.');
 	const mlo = args.mlo == true;
+	if (mlo && sched) return fail(MLO_LOCKED);
 	// the scripts treat any name with "mld" in it as an MLD, so an id never spells it
 	let id = randomToken(6);
 	while (index(id, 'mld') >= 0) id = randomToken(6);
@@ -707,7 +710,6 @@ function rewrite(c, spec, own) {
 		}
 		writeSection(c, old['.name'], spec, findDevice(devs, b), { ifname: old.ifname, macaddr: old.macaddr, disabled: old.disabled });
 	}
-	if (spec.mld) c.set('wireless', spec.mld, 'mld_ssid', spec.ssid);
 	return finish(c, { id: spec.id });
 }
 
@@ -717,8 +719,6 @@ function currentSpec(c, id, own) {
 	const first = own[0];
 	return {
 		id,
-		mlo: first.mld != null,
-		mld: first.mld,
 		ssid: first.ssid,
 		password: first.key,
 		bands: sort(map(own, (s) => bandOf(devs, s)), bandOrder),
@@ -735,15 +735,13 @@ function update(args) {
 	const c = cursor();
 	const own = findGroup(c, args.id);
 	if (type(own) == 'object') return own;
+	if (own[0].mld != null) return fail(MLO_LOCKED);
 	const spec = currentSpec(c, args.id, own);
 	if (args.network != null) {
 		const net = resolveNetwork(c, args.network);
 		if (net == null) return fail('That network doesn’t exist on the router.');
-		if (spec.mlo && spec.iface != net.iface) return fail('A multi-link network can’t move to another network. Delete it and make it again there.');
 		spec.iface = net.iface;
 	}
-	if (spec.mlo && args.bands != null && sprintf('%J', sort([...(type(args.bands) == 'array' ? args.bands : [])], bandOrder)) != sprintf('%J', spec.bands))
-		return fail('A multi-link network can’t change its bands. Delete it and make it again with the bands you want.');
 	for (let k in ['ssid', 'password', 'bands', 'security', 'hidden', 'isolate']) if (args[k] != null) spec[k] = args[k];
 	spec.options = { ...withDefaults(spec.options), ...(args.options ?? {}) };
 	const bad = checkSpec(c, spec, own);
@@ -756,11 +754,16 @@ function remove(id) {
 	const own = findGroup(c, id);
 	if (type(own) == 'object') return own;
 	const mld = own[0].mld;
-	queueTeardown(mld ? [{ mld, links: map(own, (s) => s.ifname) }] : map(own, (s) => s.ifname));
+	// a multi-link network is never torn down while running: see restartFile
+	if (mld == null) queueTeardown(map(own, (s) => s.ifname));
 	for (let s in own) c.delete('wireless', s['.name']);
 	if (mld && match(mld, MLD_NAME) && c.get('wireless', mld, 'zeeli') == '1') c.delete('wireless', mld);
 	if (c.get('zeeli', `wifi_${id}`) != null) c.delete('zeeli', `wifi_${id}`);
-	return finish(c, {});
+	if (mld == null) return finish(c, {});
+	c.commit('wireless');
+	c.commit('zeeli');
+	markRestart(own[0].ssid);
+	return { restartNeeded: true };
 }
 
 /** The person's switch. It also clears a schedule's hold, so the switch stays where it was put. */
@@ -769,6 +772,7 @@ function setEnabled(id, enabled) {
 	const own = findGroup(c, id);
 	if (type(own) == 'object') return own;
 	if (type(enabled) != 'bool') return fail('Turn the network on or off.');
+	if (own[0].mld != null && !enabled) return fail(MLO_LOCKED);
 	for (let s in own) {
 		c.set('wireless', s['.name'], 'disabled', enabled ? '0' : '1');
 		if (s.sched_off != null) c.delete('wireless', s['.name'], 'sched_off');
@@ -787,6 +791,7 @@ const RELOAD_SECONDS = 25;
 
 /** Reload WiFi so committed changes reach the radios. */
 function apply() {
+	if (restartFor() != null) return fail('A multi-link network was deleted, and the router has to restart to finish removing it. Reloading WiFi before then could crash it. Restart the router first.');
 	const r = runOrLog(['timeout', `${RELOAD_SECONDS}`, '/sbin/wifi', 'reload']);
 	if (r.code == 124) return fail('WiFi is still reloading. Your changes are saved; apply again in a minute if devices haven’t reconnected.');
 	if (r.code != 0) return fail(trim(r.stdout) || 'The router couldn’t reload WiFi.');
@@ -849,7 +854,8 @@ function tick(args) {
 	try { last = json(readfile(file) ?? '{}') ?? {}; } catch (e) { last = {}; }
 	const next = {};
 	const ids = {};
-	for (let s in sections(c, 'wireless', 'wifi-iface')) if (owned(s)) ids[groupOf(s)] = true;
+	// a multi-link network is never switched by a schedule: switching its links off would destroy the MLD
+	for (let s in sections(c, 'wireless', 'wifi-iface')) if (owned(s) && s.mld == null) ids[groupOf(s)] = true;
 	let changed = false;
 	for (let id in keys(ids)) {
 		const sched = scheduleOf(c, id);
@@ -871,6 +877,7 @@ function setSchedule(id, s) {
 	const c = cursor();
 	const own = findGroup(c, id);
 	if (type(own) == 'object') return own;
+	if (own[0].mld != null) return fail(MLO_LOCKED);
 	const e = checkSchedule(s);
 	if (e) return fail(e);
 	ensureConfig();
@@ -884,6 +891,7 @@ function clearSchedule(id) {
 	const c = cursor();
 	const own = findGroup(c, id);
 	if (type(own) == 'object') return own;
+	if (own[0].mld != null) return fail(MLO_LOCKED);
 	if (c.get('zeeli', `wifi_${id}`) != null) {
 		c.delete('zeeli', `wifi_${id}`);
 		c.commit('zeeli');

@@ -12,6 +12,7 @@ function mloBandsFree(overview: WifiOverview): OwnBand[] {
 
 /** Why multi-link can’t be chosen, or null when it can. */
 function whyNot(overview: WifiOverview): string | null {
+  if (overview.restartNeeded) return 'Restart the router first: a multi-link network you deleted is still on the air.';
   if (!overview.mlo.supported) return overview.mlo.reason ?? 'This router doesn’t support multi-link networks.';
   if (mloBandsFree(overview).length < 2) return 'Multi-link needs two bands that support it and have room for another network.';
   return null;
@@ -20,13 +21,12 @@ function whyNot(overview: WifiOverview): string | null {
 interface Props {
   form: OwnForm;
   overview: WifiOverview;
-  editing: boolean;
   onChange: (patch: Partial<OwnForm>) => void;
 }
 
-/** One name that devices use over several bands at once (Wi-Fi 7). Can’t be switched once the network exists. */
-export function MloRow({ form, overview, editing, onChange }: Props) {
-  const blocked = editing ? null : whyNot(overview);
+/** One name that devices use over several bands at once (Wi-Fi 7), for a new network. */
+export function MloRow({ form, overview, onChange }: Props) {
+  const blocked = whyNot(overview);
   function toggle(on: boolean) {
     if (!on) return onChange({ mlo: false });
     const free = mloBandsFree(overview);
@@ -34,8 +34,8 @@ export function MloRow({ form, overview, editing, onChange }: Props) {
     const bands = free.includes('5g') && free.includes('6g') ? (['5g', '6g'] as OwnBand[]) : free.slice(0, 2);
     onChange({ mlo: true, bands, security: 'sae' });
   }
-  const hint = editing
-    ? 'Devices use all the bands at once. To change the bands or the network, delete this one and make it again.'
-    : (blocked ?? 'One name over two or three bands. Wi-Fi 7 devices use them together; others join one band. Needs WPA3.');
-  return <SwitchRow label="Multi-link (Wi-Fi 7)" hint={hint} checked={form.mlo} onChange={toggle} disabled={editing || blocked !== null} />;
+  const hint =
+    blocked ??
+    'One name over two or three bands. Wi-Fi 7 devices use them together; others join one band. Needs WPA3. Once made it can’t be changed or switched off, and deleting it needs a router restart (about two minutes offline).';
+  return <SwitchRow label="Multi-link (Wi-Fi 7)" hint={hint} checked={form.mlo} onChange={toggle} disabled={blocked !== null} />;
 }

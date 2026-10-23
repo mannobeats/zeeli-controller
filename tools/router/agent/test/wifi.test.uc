@@ -32,7 +32,7 @@ function fresh() {
 	c.commit('wireless');
 	c.foreach('zeeli', 'wifi_schedule', (s) => { c.delete('zeeli', s['.name']); });
 	c.commit('zeeli');
-	for (let f in ['wifi-pending', 'wifi-schedule.json', 'wifi-apply.log', 'wifi-teardown']) unlink(`${paths.state}/${f}`);
+	for (let f in ['wifi-pending', 'wifi-schedule.json', 'wifi-apply.log', 'wifi-teardown', 'wifi-restart-needed']) unlink(`${paths.state}/${f}`);
 }
 
 const t = (name, fn) => test(name, () => { fresh(); fn(); });
@@ -478,67 +478,77 @@ t('a multi-link network still follows the per-band rules for names and slots', (
 	eq(length(mlds()), 2, 'a refused network leaves no MLD behind');
 });
 
-t('update renames, rekeys and hides a multi-link network in place, but never moves or reshapes it', () => {
+const LOCKED = 'On this firmware a multi-link network can’t be changed or switched off while the router runs. Delete it and make it again.';
+
+t('a multi-link network can’t be edited, switched off or scheduled, and nothing is written', () => {
 	const r = mk(mlo);
-	const mac = mlds().zeeli_mld2.mld_macaddr;
-	ok(!call('update', { id: r.id, ssid: 'Wi-Fi 7 Home', password: 'another one', hidden: true, options: { maxClients: 20 } }).error, 'update');
-	const m = mlds().zeeli_mld2;
-	eq([m.mld_ssid, m.mld_macaddr], ['Wi-Fi 7 Home', mac]);
-	for (let b in ['5g', '6g']) {
-		const s = sections()[`zeeli_${r.id}_${b}`];
-		eq([s.ssid, s.key, s.hidden, s.maxsta, s.mld, s.sae_pwe], ['Wi-Fi 7 Home', 'another one', '1', '20', 'zeeli_mld2', null], b);
-	}
-	eq(call('update', { id: r.id, bands: ['5g'] }).error, 'A multi-link network can’t change its bands. Delete it and make it again with the bands you want.');
-	eq(call('update', { id: r.id, bands: ['2g', '5g', '6g'] }).error, 'A multi-link network can’t change its bands. Delete it and make it again with the bands you want.');
-	eq(call('update', { id: r.id, bands: ['6g', '5g'] }).error, null, 'the same bands in another order are no change');
-	eq(call('update', { id: r.id, network: 'main' }).error, 'A multi-link network can’t move to another network. Delete it and make it again there.');
-	eq(call('update', { id: r.id, network: 'guest' }).error, null);
-	eq(call('update', { id: r.id, security: 'sae-mixed' }).error, 'Multi-link networks need WPA3.');
-	eq(entry(r.id).network, 'guest');
+	call('apply');
+	const before = sprintf('%J', [sections(), mlds()]);
+	eq(call('update', { id: r.id, ssid: 'Renamed' }).error, LOCKED);
+	eq(call('update', { id: r.id, network: 'main' }).error, LOCKED);
+	eq(call('set_enabled', { id: r.id, enabled: false }).error, LOCKED);
+	eq(call('set_schedule', { id: r.id, enabled: true, days: ['mon'], off: '22:00', on: '07:00' }).error, LOCKED);
+	eq(call('clear_schedule', { id: r.id }).error, LOCKED);
+	eq(call('create', { ...mlo, ssid: 'Timed', schedule: { enabled: true, days: ['mon'], off: '22:00', on: '07:00' } }).error, LOCKED);
+	eq(sprintf('%J', [sections(), mlds()]), before);
+	eq(call('set_enabled', { id: r.id, enabled: true }).error, null, 'on is a no-op, not a danger');
+	eq(entry(r.id).disabled, false);
 });
 
-t('set_enabled switches every link of a multi-link network and leaves the MLD', () => {
+t('the scheduler leaves a multi-link network alone', () => {
 	const r = mk(mlo);
-	call('set_enabled', { id: r.id, enabled: false });
-	eq(map(['5g', '6g'], (b) => sections()[`zeeli_${r.id}_${b}`].disabled), ['1', '1']);
-	eq(entry(r.id).disabled, true);
-	eq(sort(keys(mlds())), ['mld0', 'mld1', 'zeeli_mld2']);
+	cursor().set('zeeli', `wifi_${r.id}`, 'wifi_schedule');
+	cursor().set('zeeli', `wifi_${r.id}`, 'days', ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
+	cursor().set('zeeli', `wifi_${r.id}`, 'off', '00:00');
+	cursor().set('zeeli', `wifi_${r.id}`, 'on', '23:59');
+	cursor().commit('zeeli');
+	eq(tick({ time: mondayAt(12, 0) }).changed, false);
+	eq(map(['5g', '6g'], (b) => sections()[`zeeli_${r.id}_${b}`].disabled), ['0', '0']);
+	cursor().delete('zeeli', `wifi_${r.id}`);
+	cursor().commit('zeeli');
 });
 
-t('deleting a multi-link network removes its MLD and links, and apply takes them off the air the way GL does', () => {
+t('deleting a multi-link network removes its sections and asks for a restart, never touching the MLD or its links', () => {
 	const fw = firmware(), before = mloConfig(), gl = sprintf('%J', [mlds().mld0, mlds().mld1]);
 	const r = mk(mlo);
 	call('apply');
 	unlink(`${paths.state}/wifi-apply.log`);
-	ok(!call('delete', { id: r.id }).error, 'delete');
+	eq(call('delete', { id: r.id }), { restartNeeded: true });
 	eq(sort(keys(mlds())), ['mld0', 'mld1']);
 	eq(length(filter(keys(sections()), (k) => match(k, /^zeeli_/))), 0);
 	eq(firmware(), fw);
 	eq(sprintf('%J', [mlds().mld0, mlds().mld1]), gl);
 	eq(mloConfig(), before);
-	call('apply');
-	eq(readfile(`${paths.state}/wifi-apply.log`), join('\n', [
-		'timeout 25 /sbin/wifi reload',
-		'iw wlan130 del',
-		'iw wlan230 del',
-		'hostapd_cli -p /var/run/hostapd -i global raw REMOVE wlan130',
-		'hostapd_cli -p /var/run/hostapd -i global raw REMOVE wlan230',
-		'ip link set dev zeeli_mld2 nomaster',
-		'iw zeeli_mld2 del',
-		''
-	]));
-	unlink(`${paths.state}/wifi-apply.log`);
-	call('apply');
-	eq(readfile(`${paths.state}/wifi-apply.log`), 'timeout 25 /sbin/wifi reload\n', 'nothing is torn down twice');
+	const l = call('list');
+	eq([l.restartNeeded, l.restartFor, l.pending], [true, ['Wi-Fi 7'], false]);
+	eq(readfile(`${paths.state}/wifi-apply.log`), null, 'nothing ran');
+	const e = call('apply').error;
+	ok(match(e, /Restart the router first/), `apply said: ${e}`);
+	eq(readfile(`${paths.state}/wifi-apply.log`), null, 'a refused apply runs nothing');
+	unlink(`${paths.state}/wifi-restart-needed`);
+	eq(call('list').restartNeeded, false, 'a reboot clears it (the file lives in RAM)');
+	eq(call('apply'), { applied: true });
+	eq(readfile(`${paths.state}/wifi-apply.log`), 'timeout 25 /sbin/wifi reload\n', 'no MLD or link is ever destroyed');
 });
 
-t('a deleted multi-link network is not torn down while a new one has taken its interface names', () => {
+t('a restart that is waiting also blocks apply for per-band edits, and names every network removed', () => {
+	const a = mk(mlo);
+	const b = mk({ ...mlo, ssid: 'Second', network: 'main' });
+	call('delete', { id: a.id });
+	call('delete', { id: b.id });
+	eq(call('list').restartFor, ['Wi-Fi 7', 'Second']);
+	made({ ssid: 'Plain' });
+	ok(call('apply').error, 'apply refused while a restart is waiting');
+});
+
+t('no command in any apply ever destroys an MLD or one of its links', () => {
 	const r = mk(mlo);
-	call('delete', { id: r.id });
-	mk({ ...mlo, ssid: 'Again' });
-	unlink(`${paths.state}/wifi-apply.log`);
 	call('apply');
-	eq(readfile(`${paths.state}/wifi-apply.log`), 'timeout 25 /sbin/wifi reload\n');
+	call('delete', { id: r.id });
+	unlink(`${paths.state}/wifi-restart-needed`);
+	call('apply');
+	const log = readfile(`${paths.state}/wifi-apply.log`);
+	ok(!match(log, /\bdel\b|nomaster|destroy|REMOVE/), `log: ${log}`);
 });
 
 t('the rpc object declares every argument it reads', () => {

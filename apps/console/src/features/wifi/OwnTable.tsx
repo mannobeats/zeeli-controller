@@ -86,7 +86,7 @@ export function OwnTable({ rows, labels, clientsOn, busy, onOpen, onSwitch, onDe
             // biome-ignore lint/a11y/noStaticElementInteractions: stops the row from opening when the switch is used
             // biome-ignore lint/a11y/useKeyWithClickEvents: the switch inside handles keys itself
             <span onClick={(e) => e.stopPropagation()}>
-              <Switch checked={!n.disabled} label={`${n.ssid} on`} onChange={(on) => onSwitch([n], on)} disabled={busy} />
+              <Switch checked={!n.disabled} label={`${n.ssid} on`} onChange={(on) => onSwitch([n], on)} disabled={busy || n.mlo} />
             </span>
           ),
         },

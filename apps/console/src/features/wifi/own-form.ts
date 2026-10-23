@@ -119,11 +119,10 @@ export const toInput = (f: OwnForm): OwnWifiInput => ({
   schedule: scheduleOf(f),
 });
 
-/** An edit: the password is only sent when a new one was typed. A multi-link network keeps its bands, network and security. */
+/** An edit: the password is only sent when a new one was typed. Multi-link networks aren't edited. */
 export const toPatch = (f: OwnForm) => {
-  const { schedule: _schedule, password, mlo, bands, network, security, ...rest } = toInput(f);
-  const kept = mlo ? rest : { ...rest, bands, network, security };
-  return password ? { ...kept, password } : kept;
+  const { schedule: _schedule, password, mlo: _mlo, ...rest } = toInput(f);
+  return password ? { ...rest, password } : rest;
 };
 
 const ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';

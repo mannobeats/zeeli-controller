@@ -91,6 +91,10 @@ export interface WifiOverview {
   networks: WifiEntry[];
   radios: RadioSlots[];
   mlo: MloSupport;
+  /** A multi-link network was deleted and stays on the air until the router restarts. WiFi can’t be applied until then. */
+  restartNeeded: boolean;
+  /** The names of the networks waiting for that restart. */
+  restartFor: string[];
   lanNetworks: JoinableNetwork[];
   /** Changes saved on the router but not yet loaded into the radios. */
   pending: boolean;
@@ -106,7 +110,7 @@ export interface OwnWifiInput {
   isolate: boolean;
   options: Partial<WifiOptions>;
   schedule?: WifiSchedule | null;
-  /** One multi-link network over two or more bands. Needs WPA3; can’t be changed once made. */
+  /** One multi-link network over two or more bands. Needs WPA3; can’t be changed once made, and goes only at a restart. */
   mlo?: boolean;
 }
 
@@ -151,7 +155,8 @@ export const wifiNetworks = (t: Transport) => {
     /** Anything left out stays as it is; no password keeps the current one. */
     update: (id: string, { options, ...patch }: Partial<Omit<OwnWifiInput, 'schedule'>>) =>
       call('update', { id, ...patch, ...(options ? { options: wire(options) } : {}) }),
-    remove: (id: string) => call('delete', { id }),
+    /** A multi-link network answers `restartNeeded`: it only goes at the next restart. */
+    remove: (id: string) => call<{ restartNeeded?: boolean }>('delete', { id }),
     setEnabled: (id: string, enabled: boolean) => call('set_enabled', { id, enabled }),
     setSchedule: (id: string, schedule: WifiSchedule | null) =>
       schedule ? call('set_schedule', { id, ...schedule }) : call('clear_schedule', { id }),
