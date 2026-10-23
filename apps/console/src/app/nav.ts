@@ -52,6 +52,7 @@ export const SECTIONS: Section[] = [
       {
         pages: [
           { id: 'dashboard', title: 'Dashboard', keywords: 'home status health' },
+          { id: 'checkup', title: 'Network checkup', keywords: 'problems warnings review audit security check health fix' },
           { id: 'activity', title: 'Activity', keywords: 'events log timeline history' },
           { id: 'alerts', title: 'Alerts', keywords: 'notifications unread bell new device wan down temperature hot acknowledge' },
         ],
