@@ -1,0 +1,8 @@
+#!/bin/sh
+# Start the countdown for a change that waits to be confirmed, and return at once:
+#   zeeli-rollback-timer <token> <seconds>
+# When the time is up the agent undoes the change unless it was confirmed (zeeli.rollback).
+case "$1$2" in
+  ''|*[!0-9a-f]*) exit 1 ;;
+esac
+( sleep "$2"; exec ucode -e "import { expire } from 'zeeli.rollback'; expire(ARGV[0]);" "$1" ) </dev/null >/dev/null 2>&1 &
