@@ -1,16 +1,20 @@
 'use strict';
 
 import { eq, ok, test, plugin, done } from 'assert';
-import { cursor, paths, services } from 'zeeli.common';
+import { cursor, paths } from 'zeeli.common';
 import * as snapshots from 'zeeli.snapshots';
+import { reloader } from 'zeeli.snapshots';
 import { readfile, stat, writefile } from 'fs';
 
 const backup = plugin('backup')['zeeli.backup'];
 
-// record reloads instead of running init scripts. This replaces the copy of `services` that
-// the lib modules imported here use, so the tests that look at reloads call the lib, not rpcd.
+// record reloads instead of running init scripts. This replaces the hook of the copy of the lib
+// imported here, so the tests that look at reloads call the lib, not rpcd.
 const reloaded = [];
-services.reload = (name) => push(reloaded, name);
+reloader.run = (name) => {
+	push(reloaded, name);
+	return { code: 0, stdout: '' };
+};
 
 const file = (name) => `${paths.confdir}/${name}`;
 const edit = (name, from, to) => writefile(file(name), replace(readfile(file(name)), from, to));
@@ -95,7 +99,7 @@ test('a rollback restores only the files it names and makes no snapshot of its o
 	edit('dhcp', 'config dnsmasq', 'config dnsmasq # also changed');
 	const before = length(snapshots.list());
 	splice(reloaded, 0);
-	const r = snapshots.restore(s.id, ['firewall']);
+	const r = snapshots.restore(s.id, { only: ['firewall'] });
 	eq(r.restored, ['firewall']);
 	ok(match(readfile(file('dhcp')), /also changed/), 'dhcp is left as it is');
 	eq(length(snapshots.list()), before);

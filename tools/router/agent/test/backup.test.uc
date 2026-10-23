@@ -144,4 +144,36 @@ test('the upload can be discarded', () => {
 	ok(!stat(restoreFile()));
 });
 
+test('a downloaded backup is deleted once the console has it, and on a timer if it never says', () => {
+	const started = [];
+	backup.expiry.start = (filename) => push(started, filename);
+	const made = backup.download();
+	eq(started, [made.filename]);
+	ok(stat(made.path), 'there to fetch');
+	eq(call('finish_download'), {});
+	ok(!stat(made.path), 'gone after the fetch');
+	eq(filter(lsdir(dir()), (n) => match(n, /^backup-/)), []);
+});
+
+test('the working folder is created private, and refused when it is not ours', () => {
+	run(['rm', '-rf', dir()]);
+	ok(!call('prepare').error);
+	eq(stat(dir()).mode % 512, 448, 'mode 0700');
+
+	run(['rm', '-rf', dir()]);
+	run(['ln', '-s', '/tmp', dir()]);
+	const bad = 'The router’s backup folder isn’t safe to use, because it isn’t a plain folder owned by root, so nothing was written. Remove it and try again.';
+	eq(call('prepare'), { error: bad });
+	eq(call('download'), { error: bad });
+	run(['rm', '-f', dir()]);
+
+	run(['mkdir', dir()]);
+	run(['chown', '1000:1000', dir()]);
+	eq(call('download'), { error: bad });
+	eq(lsdir(dir()), []);
+	run(['rm', '-rf', dir()]);
+	ok(!call('download').error, 'a fresh one is made');
+	call('finish_download');
+});
+
 done();

@@ -11,7 +11,7 @@
 // snapshotted, and the router must be restarted afterwards.
 'use strict';
 
-import { chmod, lsdir, readfile, stat, unlink, writefile } from 'fs';
+import { chmod, lsdir, lstat, mkdir, readfile, stat, unlink, writefile } from 'fs';
 import { fail, paths, run } from 'zeeli.common';
 import { create } from 'zeeli.snapshots';
 
@@ -50,11 +50,29 @@ function allow() {
 	}
 }
 
+/**
+ * Make sure the working folder is ours: created here with mode 0700, or already a real folder
+ * owned by root. Anything else (a link, a folder someone else made) could send a backup, which
+ * holds the router’s passwords and keys, to the wrong place. Returns null, or why not.
+ */
 function ready() {
-	run(['mkdir', '-p', folder()]);
-	chmod(folder(), 448); // 0700
+	if (lstat(folder()) == null && !mkdir(folder(), 448)) // 0700
+		return 'The router couldn’t create its backup folder.';
+	const st = lstat(folder());
+	if (st?.type != 'directory' || st.uid != 0)
+		return 'The router’s backup folder isn’t safe to use, because it isn’t a plain folder owned by root, so nothing was written. Remove it and try again.';
+	chmod(folder(), 448);
 	allow();
+	return null;
 }
+
+/** How long a backup stays fetchable if the console never says it has it. Tests replace `start`. */
+const expiry = {
+	start: function(filename) {
+		if (paths.confdir) return;
+		run(['/usr/libexec/zeeli/zeeli-backup-expire', filename]);
+	},
+};
 
 function clear(pattern) {
 	for (let n in lsdir(folder()) ?? []) if (match(n, pattern)) unlink(`${folder()}/${n}`);
@@ -65,7 +83,8 @@ function clear(pattern) {
  * Returns { path, filename, size }.
  */
 function download() {
-	ready();
+	const bad = ready();
+	if (bad) return fail(bad);
 	clear(BACKUP);
 	const filename = `backup-${time()}.tar.gz`;
 	const path = `${folder()}/${filename}`;
@@ -82,12 +101,20 @@ function download() {
 		return fail(`The router couldn’t make a backup: ${trim(r.stdout) || 'no file was written'}`);
 	}
 	chmod(path, 384); // 0600
+	expiry.start(filename);
 	return { path, filename, size };
+}
+
+/** The console has the file: delete it, since it holds passwords and keys. */
+function finish() {
+	clear(BACKUP);
+	return {};
 }
 
 /** Where the console sends a file to restore from, after clearing the last one. */
 function prepare() {
-	ready();
+	const bad = ready();
+	if (bad) return fail(bad);
 	clear(/^restore\.tar\.gz$/);
 	return { path: upload(), maxBytes: MAX_BYTES };
 }
@@ -178,4 +205,4 @@ function restore(token) {
 }
 
 // this ucode needs exports listed rather than marked inline
-export { MAX_BYTES, download, prepare, discard, inspect, unpack, restore };
+export { MAX_BYTES, expiry, download, finish, prepare, discard, inspect, unpack, restore };

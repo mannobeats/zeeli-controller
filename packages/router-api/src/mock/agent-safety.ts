@@ -101,6 +101,8 @@ interface Snap extends Snapshot {
   others: SnapshotChange[];
 }
 const KEEP = 10;
+const AUTO_KEEP = 10;
+const RISKY = ['network', 'wireless', 'firewall', 'dropbear'];
 const RELOADS: Record<string, string | null> = {
   network: 'network',
   wireless: 'network',
@@ -123,12 +125,22 @@ function seedSnaps(): Snap[] {
   const t = now();
   const configs = ['dhcp', 'firewall', 'glconfig', 'network', 'system', 'wireless', 'zeeli'];
   return [
-    { id: `s${t - 3 * 3600}`, time: t - 3 * 3600, reason: 'Before adding a firewall rule', size: 458_112, configs, fw: before, others: [] },
+    {
+      id: `s${t - 3 * 3600}`,
+      time: t - 3 * 3600,
+      reason: 'Before adding a firewall rule',
+      size: 458_112,
+      kind: 'auto',
+      configs,
+      fw: before,
+      others: [],
+    },
     {
       id: `s${t - 2 * 86_400}`,
       time: t - 2 * 86_400,
       reason: 'Before the holiday',
       size: 455_640,
+      kind: 'manual',
       configs,
       fw: holiday,
       others: [
@@ -140,6 +152,7 @@ function seedSnaps(): Snap[] {
       time: t - 9 * 86_400,
       reason: 'Before restoring a backup file',
       size: 449_880,
+      kind: 'manual',
       configs: [...configs, 'kmwan'],
       fw: copy(old),
       others: [{ name: 'kmwan', change: 'changed', sections: [{ section: 'interface wan', change: 'changed', options: ['metric'] }] }],
@@ -179,7 +192,7 @@ function changes(s: MockState, snap: Snap): SnapshotChange[] {
   return [...(d ? [d] : []), ...snap.others];
 }
 
-function snapshot(s: MockState, reason: string): Snap {
+function snapshot(s: MockState, reason: string, kind: Snapshot['kind'] = 'manual'): Snap {
   const list = snaps(s);
   const t = now();
   const id = `s${t}-${list.length}-${hex(2)}`;
@@ -188,12 +201,18 @@ function snapshot(s: MockState, reason: string): Snap {
     time: t,
     reason,
     size: 457_900,
+    kind,
     configs: ['dhcp', 'firewall', 'glconfig', 'network', 'system', 'wireless', 'zeeli'],
     fw: copy(fw(s)),
     others: [],
   };
   list.unshift(snap);
-  list.splice(KEEP);
+  // each kind has its own limit, and a snapshot a waiting change needs is never dropped
+  const needed = new Set([...pending(s).values()].map((p) => p.snapshot));
+  for (const k of ['manual', 'auto'] as const) {
+    const ofKind = list.filter((x) => x.kind === k);
+    for (const old of ofKind.slice(k === 'auto' ? AUTO_KEEP : KEEP)) if (!needed.has(old.id)) list.splice(list.indexOf(old), 1);
+  }
   return snap;
 }
 
@@ -203,19 +222,28 @@ function restoreSnap(s: MockState, snap: Snap) {
   const diffs = changes(s, snap);
   if (!diffs.length)
     return { restored: [], reloaded: [], rebootNeeded: false, summary: 'The router already matches this snapshot.', undo: null };
-  const undo = snapshot(s, `Before restoring the snapshot from ${snap.reason}`);
   const names = diffs.map((d) => d.name).sort();
+  const risky = names.some((n) => RISKY.includes(n));
+  if (risky && pending(s).size) return err('A change is still waiting to be confirmed. Confirm or undo it first.');
+  const before = copy(fw(s));
+  // a restore that could cut the console off is a confirmable change: its undo is the router's own snapshot
+  const undo = risky
+    ? snapshot(s, 'Before restoring a snapshot', 'auto')
+    : snapshot(s, `Before restoring the snapshot from ${snap.reason}`);
   const wanted = new Set(names.map((n) => RELOADS[n]).filter((x): x is string => Boolean(x)));
   const reloaded = RELOAD_ORDER.filter((x) => wanted.has(x));
   const restart = names.filter((n) => !(n in RELOADS));
-  const state = fw(s);
-  Object.assign(state, copy(snap.fw));
+  Object.assign(fw(s), copy(snap.fw));
   snap.others = [];
   let summary = `Restored ${names.join(', ')}.`;
   if (reloaded.length) summary += ` Reloaded ${reloaded.join(', ')} so the change is live now.`;
   if (restart.length)
     summary += ` ${restart.join(', ')} ${restart.length === 1 ? 'is' : 'are'} only read when the router starts, so restart it for that to take effect.`;
-  return { restored: names, reloaded, rebootNeeded: restart.length > 0, summary, undo: undo.id };
+  const result = { restored: names, reloaded, rebootNeeded: restart.length > 0, summary, undo: undo.id };
+  if (!risky) return result;
+  const token = hex(16);
+  pending(s).set(token, { before, what: 'restoring a snapshot', snapshot: undo.id });
+  return { ...result, token, seconds: 30, expires: now() + 30 };
 }
 
 /* ---------- confirm or roll back ---------- */
@@ -223,6 +251,7 @@ function restoreSnap(s: MockState, snap: Snap) {
 interface Pending {
   before: Fw;
   what: string;
+  snapshot: string;
 }
 const pending = (s: MockState) => keep(s, 'safety-pending', () => new Map<string, Pending>());
 const finished = (s: MockState) => keep(s, 'safety-finished', () => new Map<string, { state: string; message: string }>());
@@ -234,11 +263,11 @@ function write(s: MockState, what: string, change: (f: Fw) => { error: string } 
   const staged = copy(f);
   const result = change(staged);
   if ('error' in result) return result;
-  snapshot(s, `Before ${what}`);
+  const snap = snapshot(s, `Before ${what}`, 'auto');
   Object.assign(f, staged);
   renumber(f.rules);
   const token = hex(16);
-  pending(s).set(token, { before: copy(snaps(s)[0]?.fw ?? f), what });
+  pending(s).set(token, { before: copy(snap.fw), what, snapshot: snap.id });
   return { ...result, token, seconds: 30, expires: now() + 30 };
 }
 
@@ -290,6 +319,39 @@ function findRule(f: Fw, a: Args) {
 
 const NETWORKS = ['lan', 'wan', 'wan6', 'secondwan', 'wwan', 'guest', 'iot'];
 
+const ADMIN_PORTS = [22, 53, 67, 80, 443];
+const coversAdminPort = (spec: string) =>
+  spec === '' ||
+  spec.split(' ').some((part) => {
+    const [lo = 0, hi = lo] = part.split('-').map(Number);
+    return ADMIN_PORTS.some((p) => p >= lo && p <= hi);
+  });
+const lanName = (f: Fw) => f.zones.find((z) => z.networks.includes('lan'))?.name;
+
+/** The agent refuses what would shut the admin network out of the router, since a confirm over an open connection can't catch it. */
+function lockout(f: Fw, r: Partial<AgentRule>) {
+  const lan = lanName(f);
+  const blocks = r.enabled !== false && (r.target === 'REJECT' || r.target === 'DROP');
+  const toAll = !r.dest && ['tcp udp', 'tcp', 'udp', 'all'].includes(r.proto ?? 'tcp udp') && !r.srcIp && !r.destIp;
+  if (!lan || !blocks || !toAll || (r.src !== lan && r.src !== '*') || !coversAdminPort(r.destPort ?? '')) return undefined;
+  return err(
+    `That rule would block ${lan === 'lan' ? 'the Main LAN' : `the ${lan} zone`} from reaching the router itself, and then nothing on it could open this console. Narrow it to a device or a port, or send it to another zone.`,
+  );
+}
+
+/** Why a zone change is refused, if it is: a bad policy, a lock-out of the admin network, or a network that can't move. */
+function zoneProblem(f: Fw, z: AgentZone, a: Args) {
+  const admin = z.name === lanName(f);
+  const policy = (['input', 'output', 'forward'] as const).find((k) => a[k] !== undefined && !POLICIES.includes(text(a[k])));
+  if (policy) return 'A zone’s traffic must be allowed, rejected or dropped.';
+  if (admin && a.input !== undefined && a.input !== 'ACCEPT')
+    return 'Nothing on the Main LAN could open this console if it stopped allowing traffic to the router.';
+  const nets = Array.isArray(a.networks) ? (a.networks as string[]) : null;
+  if (admin && nets && !nets.includes('lan'))
+    return 'The lan network has to stay in the Main LAN, or its devices could no longer reach this console.';
+  return nets?.map((n) => networkProblem(f, z, n)).find(Boolean);
+}
+
 function networkProblem(f: Fw, zone: AgentZone, n: string) {
   if (!NETWORKS.includes(n)) return `There’s no network called ${n}.`;
   const other = f.zones.find((x) => x.name !== zone.name && x.networks.includes(n));
@@ -309,18 +371,12 @@ const firewall: Record<string, Handler> = {
       const z = f.zones.find((x) => x.name === a.name);
       if (!z) return err(`There’s no zone called ${a.name}.`);
       if (!z.editable) return err('Zones made by router services are changed from that service.');
-      for (const k of ['input', 'output', 'forward'] as const)
-        if (a[k] !== undefined) {
-          if (!POLICIES.includes(text(a[k]))) return err('A zone’s traffic must be allowed, rejected or dropped.');
-          z[k] = text(a[k]) as AgentZone['input'];
-        }
+      const bad = zoneProblem(f, z, a);
+      if (bad) return err(bad);
+      for (const k of ['input', 'output', 'forward'] as const) if (a[k] !== undefined) z[k] = text(a[k]) as AgentZone['input'];
       if (a.masquerade !== undefined) z.masquerade = Boolean(a.masquerade);
       if (a.mssClamp !== undefined) z.mssClamp = Boolean(a.mssClamp);
-      if (!Array.isArray(a.networks)) return {};
-      const nets = [...new Set(a.networks as string[])];
-      const bad = nets.map((n) => networkProblem(f, z, n)).find(Boolean);
-      if (bad) return err(bad);
-      z.networks = nets;
+      if (Array.isArray(a.networks)) z.networks = [...new Set(a.networks as string[])];
       return {};
     }),
 
@@ -349,6 +405,8 @@ const firewall: Record<string, Handler> = {
       const v = checkRule(f, { proto: 'tcp udp', src: '*', target: 'ACCEPT', enabled: true, ...a }, {});
       if ('error' in v) return v;
       const r = rule(v.name ?? '', v.src ?? '*', v.dest ?? '', v);
+      const stop = lockout(f, r);
+      if (stop) return stop;
       f.rules.push(r);
       return { id: r.id };
     }),
@@ -358,6 +416,8 @@ const firewall: Record<string, Handler> = {
       if ('error' in r) return r;
       const v = checkRule(f, a, r);
       if ('error' in v) return v;
+      const stop = lockout(f, { ...r, ...v });
+      if (stop) return stop;
       Object.assign(r, v);
       return {};
     }),
@@ -365,6 +425,8 @@ const firewall: Record<string, Handler> = {
     write(s, `turning a firewall rule ${a.enabled ? 'on' : 'off'}`, (f) => {
       const r = findRule(f, a);
       if ('error' in r) return r;
+      const stop = a.enabled ? lockout(f, { ...r, enabled: true }) : undefined;
+      if (stop) return stop;
       r.enabled = Boolean(a.enabled);
       return {};
     }),
@@ -423,7 +485,12 @@ const ID = /^s\d+(-[0-9a-z]+)*$/;
 const FILE_TOKEN = 'd3adb33f'.repeat(8);
 
 const backup: Record<string, Handler> = {
-  'zeeli:backup.list': (s) => ({ snapshots: snaps(s).map(strip), keep: KEEP }),
+  'zeeli:backup.list': (s) => ({ snapshots: snaps(s).map(strip), keep: KEEP, autoKeep: AUTO_KEEP }),
+  // a restore that waits for a confirm uses the same countdown as a firewall write
+  'zeeli:backup.confirm': (s, a) => firewall['zeeli:firewall.confirm']?.(s, a, { uptime: 0 }),
+  'zeeli:backup.revert': (s, a) => firewall['zeeli:firewall.revert']?.(s, a, { uptime: 0 }),
+  'zeeli:backup.status': (s, a) => firewall['zeeli:firewall.status']?.(s, a, { uptime: 0 }),
+  'zeeli:backup.finish_download': () => ({}),
   'zeeli:backup.create': (s, a) => {
     const reason = text(a.reason).trim();
     if (!reason || reason.length > 80) return err('Say why you’re taking it, in up to 80 characters.');

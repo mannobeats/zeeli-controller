@@ -51,6 +51,7 @@ function BackupBody() {
   const [taking, setTaking] = useState(false);
   const [looking, setLooking] = useState<Snapshot | null>(null);
   const [restart, setRestart] = useState<string | null>(null);
+  const [change, setChange] = useState<Change>(null);
   const query = useQuery({ queryKey: ['snapshots'], queryFn: api.safety.backup.snapshots.list });
   const reboot = useWrite(() => api.system.reboot(), []);
 
@@ -65,6 +66,7 @@ function BackupBody() {
           </Button>
         }
       />
+      <ChangeNotice change={change} dismiss={() => setChange(null)} />
       {restart ? (
         <div className="panel notice">
           <h2>Restart the router to finish</h2>
@@ -85,11 +87,28 @@ function BackupBody() {
           </div>
         </div>
       ) : null}
-      <SnapshotsPanel query={query} onLook={setLooking} onRestart={setRestart} />
+      <SnapshotsPanel query={query} onLook={setLooking} onRestart={setRestart} onChange={setChange} />
       <BackupFilePanel onRestart={setRestart} />
       {taking ? <TakeSheet onClose={() => setTaking(false)} /> : null}
       {looking ? <ChangesSheet snapshot={looking} onClose={() => setLooking(null)} /> : null}
     </>
+  );
+}
+
+/** A restore that touches the network or firewall is kept only if this page reaches the router afterwards. */
+type Change = { kind: 'confirming' } | { kind: 'rolledBack' | 'unknown'; message: string } | null;
+
+function ChangeNotice({ change, dismiss }: { change: Change; dismiss: () => void }) {
+  if (!change) return null;
+  if (change.kind === 'confirming') return <p className="kicker">Confirming your change…</p>;
+  return (
+    <div className="panel notice" role="alert">
+      <h2>{change.kind === 'rolledBack' ? 'The router undid the restore' : 'Couldn’t confirm the restore'}</h2>
+      <p className="kicker">{change.message}</p>
+      <div className="row-actions start">
+        <Button onClick={dismiss}>Dismiss</Button>
+      </div>
+    </div>
   );
 }
 
@@ -99,15 +118,18 @@ function SnapshotsPanel({
   query,
   onLook,
   onRestart,
+  onChange,
 }: {
-  query: UseQueryResult<{ snapshots: Snapshot[]; keep: number }>;
+  query: UseQueryResult<{ snapshots: Snapshot[]; keep: number; autoKeep: number }>;
   onLook: (s: Snapshot) => void;
   onRestart: (why: string) => void;
+  onChange: (c: Change) => void;
 }) {
   const { toast, confirm } = useFeedback();
   const remove = useWrite((id: string) => api.safety.backup.snapshots.remove(id), [['snapshots']]);
   const restore = useWrite((id: string) => api.safety.backup.snapshots.restore(id), [['snapshots'], ['firewall'], ['agent-firewall']]);
   const list = query.data?.snapshots ?? [];
+  const automatic = list.filter((x) => x.kind === 'auto').length;
 
   async function restoreOne(s: Snapshot) {
     try {
@@ -128,10 +150,15 @@ function SnapshotsPanel({
         }))
       )
         return;
+      onChange({ kind: 'confirming' });
       const r = await restore.mutateAsync(s.id);
-      toast(r.summary);
-      if (r.rebootNeeded) onRestart(r.summary);
+      if (r.outcome.state === 'confirmed') {
+        onChange(null);
+        toast(r.summary);
+        if (r.rebootNeeded) onRestart(r.summary);
+      } else onChange({ kind: r.outcome.state, message: r.outcome.message });
     } catch (err) {
+      onChange(null);
       toast(`Couldn’t restore: ${errorMessage(err)}`);
     }
   }
@@ -150,7 +177,14 @@ function SnapshotsPanel({
   }
 
   return (
-    <Panel title="Snapshots" note={query.data ? `${list.length} of ${query.data.keep} kept` : undefined}>
+    <Panel
+      title="Snapshots"
+      note={
+        query.data
+          ? `${list.length - automatic} of ${query.data.keep} kept${automatic ? `, ${automatic} automatic (the newest ${query.data.autoKeep} are kept)` : ''}`
+          : undefined
+      }
+    >
       {query.isError ? <p className="form-error">{errorMessage(query.error)}</p> : null}
       {query.data && !list.length ? (
         <Note>No snapshots yet. The router takes one before a firewall change, or you can take one now.</Note>
@@ -170,7 +204,16 @@ function SnapshotsPanel({
                 </>
               ),
             },
-            { key: 'why', header: 'Why', phone: 'sub', cell: (s) => s.reason },
+            {
+              key: 'why',
+              header: 'Why',
+              phone: 'sub',
+              cell: (s) => (
+                <>
+                  {s.reason} {s.kind === 'auto' ? <span className="muted">Automatic</span> : null}
+                </>
+              ),
+            },
             { key: 'size', header: 'Size', align: 'end', cell: (s) => <span className="num">{bytes(s.size)}</span> },
             {
               key: 'act',
@@ -310,38 +353,46 @@ function BackupFilePanel({ onRestart }: { onRestart: (why: string) => void }) {
   }
 
   return (
-    <Panel title="Backup file" note="Everything the router keeps in /etc, as one file">
-      <Note>
-        The file holds passwords and WiFi keys, so keep it somewhere private. Restoring a file from another router model can leave this one
-        unreachable; take a snapshot first and keep the file only for the router it came from.
-      </Note>
-      <div className="row-actions start">
-        <Button busy={busy === 'download'} onClick={download}>
-          Download backup
-        </Button>
-      </div>
-      <label className="input">
-        Restore from a file
-        <span className="box">
-          <input
-            type="file"
-            accept=".gz,.tar.gz,application/gzip"
-            disabled={busy !== null}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = '';
-              if (f) pick(f);
-            }}
-          />
-        </span>
-      </label>
-      {busy === 'check' ? <Note>Sending the file to the router and checking it…</Note> : null}
-      {busy === 'restore' ? <Note>Restoring…</Note> : null}
-      {problem ? (
-        <p className="form-error" role="alert">
-          {problem}
-        </p>
-      ) : null}
-    </Panel>
+    <>
+      <Panel title="Backup file" note="Everything the router keeps in /etc, as one file">
+        <Note>
+          The file holds passwords and WiFi keys, so keep it somewhere private. The router deletes its copy as soon as it has been
+          downloaded.
+        </Note>
+        <div className="row-actions start">
+          <Button busy={busy === 'download'} onClick={download}>
+            Download backup
+          </Button>
+        </div>
+      </Panel>
+      <Panel title="Restore from a file" note="Replaces the router’s settings with the file’s">
+        <Note>
+          Restoring a file from another router model can leave this one unreachable; take a snapshot first and keep the file only for the
+          router it came from.
+        </Note>
+        <label className="input">
+          Backup file
+          <span className="box">
+            <input
+              type="file"
+              accept=".gz,.tar.gz,application/gzip"
+              disabled={busy !== null}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (f) pick(f);
+              }}
+            />
+          </span>
+        </label>
+        {busy === 'check' ? <Note>Sending the file to the router and checking it…</Note> : null}
+        {busy === 'restore' ? <Note>Restoring…</Note> : null}
+        {problem ? (
+          <p className="form-error" role="alert">
+            {problem}
+          </p>
+        ) : null}
+      </Panel>
+    </>
   );
 }

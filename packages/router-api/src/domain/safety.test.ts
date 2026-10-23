@@ -52,6 +52,21 @@ describe('confirming a change', () => {
     expect(t.zeeli).toHaveBeenCalledTimes(3);
   });
 
+  test('the first confirm waits for the router to end the old connections', async () => {
+    vi.useFakeTimers();
+    try {
+      const t = scripted({ state: 'confirmed' });
+      const outcome = confirmChange(t, 'firewall', { ...armed, settle: 2 });
+      await vi.advanceTimersByTimeAsync(1900);
+      expect(t.zeeli).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(await outcome).toEqual({ state: 'confirmed' });
+      expect(t.zeeli).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('never reaching it again is reported as unknown, because the router decides alone', async () => {
     vi.useFakeTimers();
     try {
@@ -177,7 +192,7 @@ describe('snapshots and backups', () => {
     const b = api.safety.backup.snapshots;
     await expect(b.create('  ')).rejects.toThrow('Say why');
     for (let i = 0; i < 12; i++) await b.create(`Number ${i}`);
-    expect((await b.list()).snapshots).toHaveLength(10);
+    expect((await b.list()).snapshots.filter((s) => s.kind === 'manual')).toHaveLength(10);
   });
 
   test('a backup downloads through the path the router names', async () => {
@@ -258,5 +273,76 @@ describe('mesh nodes', () => {
     const nodes = await createRouterApi(t).networkExtras.mesh.nodes();
     expect(nodes[0]).toMatchObject({ mac: 'AA:BB:CC:DD:EE:FF', name: 'Hall', backhaul: 'wired', clients: 2, online: false, uptime: null });
     expect(nodes[1]).toMatchObject({ mac: '', name: '', model: 'GL.iNet', backhaul: null, clients: 0, online: true });
+  });
+});
+
+describe('keeping the admin network reachable', () => {
+  test('the zone with the lan network keeps accepting traffic to the router', async () => {
+    const fw = api.safety.firewall;
+    await expect(fw.updateZone('lan', { input: 'REJECT' })).rejects.toThrow('Nothing on the Main LAN could open this console');
+    await expect(fw.updateZone('lan', { networks: [] })).rejects.toThrow('The lan network has to stay in the Main LAN');
+    expect((await fw.zones()).find((z) => z.name === 'lan')?.input).toBe('ACCEPT');
+  });
+
+  test('a rule that blocks it from the router is refused, a narrower one is not', async () => {
+    const fw = api.safety.firewall;
+    await expect(fw.addRule({ name: 'Lock', src: 'lan', target: 'DROP' })).rejects.toThrow(
+      'would block the Main LAN from reaching the router',
+    );
+    await expect(fw.addRule({ name: 'Lock', src: 'lan', target: 'REJECT', proto: 'tcp', destPort: '8000-9000 443' })).rejects.toThrow(
+      'would block',
+    );
+    await fw.addRule({ name: 'One device', src: 'lan', target: 'REJECT', srcIp: '192.168.8.99' });
+    await fw.addRule({ name: 'Another port', src: 'lan', target: 'REJECT', destPort: '8080' });
+    const device = (await fw.rules()).find((r) => r.name === 'One device');
+    if (device) await expect(fw.updateRule(device, { srcIp: '' })).rejects.toThrow('would block');
+  });
+});
+
+describe('automatic and manual snapshots', () => {
+  test('ten firewall edits can’t push out a person’s snapshots', async () => {
+    const b = api.safety.backup.snapshots;
+    for (const n of ['Mine 1', 'Mine 2']) await b.create(n);
+    for (let i = 0; i < 12; i++) await api.safety.firewall.setRuleEnabled((await api.safety.firewall.rules())[0] as never, i % 2 === 1);
+    const { snapshots, autoKeep } = await b.list();
+    expect(snapshots.filter((s) => s.kind === 'auto')).toHaveLength(autoKeep);
+    expect(snapshots.filter((s) => s.reason.startsWith('Mine'))).toHaveLength(2);
+    expect(snapshots.some((s) => s.reason === 'Before the holiday')).toBe(true);
+  });
+
+  test('a restore that touches the firewall is confirmed like a firewall write', async () => {
+    const b = api.safety.backup.snapshots;
+    const made = await b.create('Before the test');
+    await api.safety.firewall.updateZone('iot', { forward: 'ACCEPT' });
+    const r = await b.restore(made.id);
+    expect(r.outcome).toEqual({ state: 'confirmed' });
+    expect(r.undo).not.toBeNull();
+    expect((await b.list()).snapshots.find((s) => s.id === r.undo)).toMatchObject({ reason: 'Before restoring a snapshot', kind: 'auto' });
+  });
+
+  test('an unconfirmed restore is undone by the router', async () => {
+    const t = createMockTransport({ latencyMs: 0 });
+    await t.session.login('demo');
+    const safe = createRouterApi(t).safety;
+    const made = await safe.backup.snapshots.create('Before the test');
+    await safe.firewall.updateZone('iot', { forward: 'ACCEPT' });
+    const r = await t.zeeli<{ token: string }>('backup', 'restore', { id: made.id });
+    expect((await safe.firewall.zones()).find((z) => z.name === 'iot')?.forward).toBe('REJECT');
+    await expect(t.zeeli('backup', 'restore', { id: made.id })).resolves.toBeDefined();
+    expect(await t.zeeli('backup', 'revert', { token: r.token })).toMatchObject({ state: 'rolledBack' });
+    expect((await safe.firewall.zones()).find((z) => z.name === 'iot')?.forward).toBe('ACCEPT');
+  });
+
+  test('a backup that was downloaded is deleted on the router straight away', async () => {
+    const t = createMockTransport({ latencyMs: 0 });
+    await t.session.login('demo');
+    const calls: string[] = [];
+    const real = t.zeeli.bind(t);
+    t.zeeli = (async (area: string, method: string, args?: object) => {
+      calls.push(`${area}.${method}`);
+      return real(area, method, args);
+    }) as typeof t.zeeli;
+    await createRouterApi(t).safety.backup.download();
+    expect(calls).toEqual(['backup.download', 'backup.finish_download']);
   });
 });
