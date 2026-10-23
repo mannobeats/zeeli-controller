@@ -56,12 +56,12 @@ Each `test/*.test.uc` runs on a fresh copy of `test/fixtures/be9300`: the GL-BE9
 
 `zeeli.groups` and `zeeli.policies` (see the headers of `lib/zeeli/groups.uc` and `lib/zeeli/policies.uc` for the shapes). Groups and policies live in `/etc/config/zeeli` as `group` and `policy` sections named `zeeli_g_<id>` and `zeeli_p_<id>`.
 
-| File                         | What                                                                                                           |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `lib/zeeli/store.uc`         | UCI read and write, and the rules for what may be stored (limits: 64 groups, 256 devices a group, 128 policies) |
-| `lib/zeeli/nftpolicy.uc`     | Pure: policies and the clock in, nft text out. Golden output in `test/golden/*.nft`                            |
-| `lib/zeeli/policyapply.uc`   | Everything that touches the router: checks, writes, reloads, dnsmasq, speed limits, the 30-second loop        |
-| `init.d/zeeli-policies`      | procd service running `bin/policy-loop` (`serve()`), enabled and restarted by `zeeli-update`                    |
+| File                       | What                                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `lib/zeeli/store.uc`       | UCI read and write, and the rules for what may be stored (limits: 64 groups, 256 devices a group, 128 policies) |
+| `lib/zeeli/nftpolicy.uc`   | Pure: policies and the clock in, nft text out. Golden output in `test/golden/*.nft`                             |
+| `lib/zeeli/policyapply.uc` | Everything that touches the router: checks, writes, reloads, dnsmasq, speed limits, the 30-second loop          |
+| `init.d/zeeli-policies`    | procd service running `bin/policy-loop` (`serve()`), enabled and restarted by `zeeli-update`                    |
 
 ### How a policy reaches the router
 
