@@ -7,7 +7,6 @@ import { navigate } from '../../app/useHashRoute.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { bytes } from '../../lib/format.ts';
 import { Button } from '../../ui/Button.tsx';
-import { DataTable } from '../../ui/DataTable.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { SelectField, SwitchRow } from '../../ui/fields.tsx';
 import { Empty, Grid, Note, PageHeader, Panel } from '../../ui/Layout.tsx';
@@ -16,6 +15,10 @@ import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
 import { DnsStats } from '../dns/DnsStats.tsx';
 import { QueryLog } from '../dns/QueryLog.tsx';
 import { WhenAdguardOn } from '../dns/WhenAdguardOn.tsx';
+import { HistoryGate } from '../history/parts.tsx';
+import { useHistoryStatus } from '../history/useHistory.ts';
+import { BarTable } from './BarTable.tsx';
+import { TrafficHistory } from './TrafficHistory.tsx';
 
 /* ======================= Traffic ======================= */
 
@@ -24,6 +27,7 @@ export function TrafficPage() {
   const rule = useSettings('flow-rule', api.traffic.rule);
   const usage = useQuery({ queryKey: ['flow-usage'], queryFn: api.traffic.usage, refetchInterval: 60_000 });
   const clear = useWrite(() => api.traffic.clear(), [['flow-usage']]);
+  const history = useHistoryStatus().data;
   const clients = useClients().data ?? [];
   const byDevice = [...clients].sort((a, b) => b.totalRx + b.totalTx - (a.totalRx + a.totalTx)).filter((c) => c.totalRx + c.totalTx > 0);
 
@@ -33,7 +37,6 @@ export function TrafficPage() {
         <>
           <PageHeader
             title="Traffic"
-            sub={r.enable ? STAT_PERIODS[r.time] : 'Per-app counting is off'}
             actions={
               <Button
                 variant="danger"
@@ -58,8 +61,11 @@ export function TrafficPage() {
               </Button>
             }
           />
+          <HistoryGate>
+            <TrafficHistory />
+          </HistoryGate>
           <Grid cols={2}>
-            <Panel title="Total">
+            <Panel title="Total" note={r.enable ? STAT_PERIODS[r.time] : 'Per-app counting is off'}>
               {usage.data ? (
                 <>
                   <div className="rates">
@@ -92,20 +98,22 @@ export function TrafficPage() {
               <Empty>No traffic counted yet.</Empty>
             )}
           </Panel>
-          <Panel className="section" title="By device" note="Since the router started counting">
-            {byDevice.length ? (
-              <BarTable
-                label="Traffic by device"
-                rows={byDevice
-                  .slice(0, 50)
-                  .map((c) => ({ key: c.mac, name: c.name, down: c.totalRx, up: c.totalTx, total: c.totalRx + c.totalTx }))}
-                onRow={(mac) => navigate(`clients?device=${encodeURIComponent(mac)}`)}
-              />
-            ) : (
-              <Empty>No usage yet.</Empty>
-            )}
-            <Note>For history across reboots, install Traffic history or Per-device usage from the App store.</Note>
-          </Panel>
+          {history === null ? (
+            <Panel className="section" title="By device" note="Since the router started counting">
+              {byDevice.length ? (
+                <BarTable
+                  label="Traffic by device"
+                  rows={byDevice
+                    .slice(0, 50)
+                    .map((c) => ({ key: c.mac, name: c.name, down: c.totalRx, up: c.totalTx, total: c.totalRx + c.totalTx }))}
+                  onRow={(mac) => navigate(`clients?device=${encodeURIComponent(mac)}`)}
+                />
+              ) : (
+                <Empty>No usage yet.</Empty>
+              )}
+              <Note>For history across reboots, install Traffic history or Per-device usage from the App store.</Note>
+            </Panel>
+          ) : null}
         </>
       )}
     </Loaded>
@@ -158,43 +166,6 @@ function DayBars({ days }: { days: { start: number; total: number }[] }) {
         </div>
       ))}
     </div>
-  );
-}
-
-interface BarRow {
-  key: string;
-  name: string;
-  down: number;
-  up: number;
-  total: number;
-}
-function BarTable({ rows, label, onRow }: { rows: BarRow[]; label: string; onRow?: (key: string) => void }) {
-  const max = Math.max(1, ...rows.map((r) => r.total));
-  return (
-    <DataTable
-      label={label}
-      rows={rows}
-      rowKey={(r) => r.key}
-      onRowClick={onRow ? (r) => onRow(r.key) : undefined}
-      columns={[
-        {
-          key: 'name',
-          header: 'Name',
-          phone: 'title',
-          cell: (r) => (
-            <div className="bar-cell start">
-              <span className="name">{r.name}</span>
-              <span className="bar">
-                <i style={{ width: `${Math.max(2, (r.total / max) * 100)}%` }} />
-              </span>
-            </div>
-          ),
-        },
-        { key: 'down', header: 'Download', align: 'end', phone: 'sub', cell: (r) => bytes(r.down) },
-        { key: 'up', header: 'Upload', align: 'end', cell: (r) => bytes(r.up) },
-        { key: 'total', header: 'Total', align: 'end', phone: 'end', cell: (r) => bytes(r.total) },
-      ]}
-    />
   );
 }
 

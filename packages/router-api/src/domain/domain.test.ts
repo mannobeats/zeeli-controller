@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createRouterApi, type RouterApi } from '../api.ts';
+import { RouterError } from '../errors.ts';
 import { createMockTransport } from '../mock/transport.ts';
 import { APP_CATALOG } from './apps.ts';
 import { bedtimeAt, type Profile } from './family.ts';
@@ -236,16 +237,43 @@ describe('OpenWrt', () => {
     expect(await settle(api.apps.drives())).toEqual([]);
   });
 
-  test('parental pauses come back as firewall rules', async () => {
-    const [leo] = (await settle(api.family.config())).profiles;
+  test('without the agent, parental pauses come back as firewall rules', async () => {
+    const old = createRouterApi(
+      Object.assign(Object.create(createMockTransport({ latencyMs: 0 })), {
+        zeeli: () => Promise.reject(new RouterError('failed', 'The Zeeli agent has no system.version.')),
+      }),
+    );
+    await settle(old.session.login('demo'));
+    await old.session.unlockAdvanced('demo');
+    const [leo] = (await settle(old.family.config())).profiles;
     if (!leo) throw new Error('no profile');
     const now = new Date(Date.UTC(2026, 9, 22, 18));
-    await settle(api.family.pause(leo, now, null));
-    await settle(api.family.pause(leo, now, new Date(Date.UTC(2026, 9, 22, 19))));
-    const pauses = await settle(api.family.pauses());
+    await settle(old.family.pause(leo, now, null));
+    await settle(old.family.pause(leo, now, new Date(Date.UTC(2026, 9, 22, 19))));
+    const pauses = await settle(old.family.pauses());
     expect(pauses.map((p) => p.until)).toEqual([null, new Date(Date.UTC(2026, 9, 22, 19))]);
-    await settle(api.family.resume(pauses));
-    expect(await settle(api.family.pauses())).toEqual([]);
+    expect(pauses.some((p) => p.agent)).toBe(false);
+    await settle(old.family.resume(pauses));
+    expect(await settle(old.family.pauses())).toEqual([]);
+  });
+
+  test('with the agent, a pause is a policy that needs no unlock', async () => {
+    const locked = createRouterApi(createMockTransport({ latencyMs: 0 }));
+    await settle(locked.session.login('demo'));
+    const [leo] = (await settle(locked.family.config())).profiles;
+    if (!leo) throw new Error('no profile');
+    const now = new Date(Date.UTC(2026, 9, 22, 18));
+    await settle(locked.family.pause(leo, now, new Date(Date.UTC(2026, 9, 22, 18, 30))));
+    const [timed] = await settle(locked.family.pauses());
+    expect(timed).toMatchObject({ profileId: leo.id, agent: true });
+    expect(timed?.until).toBeInstanceOf(Date);
+    // pausing again restarts the one pause rather than adding another
+    await settle(locked.family.pause(leo, now, null, timed));
+    const [forever, ...rest] = await settle(locked.family.pauses());
+    expect(rest).toEqual([]);
+    expect(forever).toMatchObject({ profileId: leo.id, until: null, agent: true });
+    await settle(locked.family.resume([forever as NonNullable<typeof forever>]));
+    expect(await settle(locked.family.pauses())).toEqual([]);
   });
 });
 

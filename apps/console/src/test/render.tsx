@@ -10,8 +10,9 @@ import { FeedbackProvider } from '../ui/feedback.tsx';
 afterEach(cleanup);
 // tests read the demo router through `api` before rendering, too
 beforeAll(() => api.session.login('demo'));
-// the shared demo router answers after ~120 ms, and a save is a write, a read-back and a refetch
-configure({ asyncUtilTimeout: 3000 });
+// the shared demo router answers after ~120 ms, and a save is a write, a read-back and a refetch;
+// with every test file running at once a busy machine can need several times that
+configure({ asyncUtilTimeout: 8000 });
 
 let client = new QueryClient();
 

@@ -107,6 +107,7 @@ export const seed = () => ({
     subnet('guest', '192.168.9.1', 9, true, '', 'Guest'),
     subnet('iot', '192.168.10.1', 10, true, '', 'IoT'),
     subnet('Lab', '10.20.0.1', 20, true, 'LAN4', ''),
+    subnet('Kids', '192.168.11.1', 11, true, '', 'Kids'),
   ],
   binds: [
     { mac: '02:5E:E1:17:0A:C7', ip: '192.168.8.10', name: 'nas-01', display_name: 'main' },

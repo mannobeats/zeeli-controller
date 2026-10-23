@@ -36,6 +36,8 @@ export default defineConfig(({ mode }) => ({
     environment: 'jsdom',
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
+    // above Testing Library's 8 s wait, so a slow wait fails with its own message
+    testTimeout: 15_000,
     // load the router API from its source path, so coverage counts the calls pages make into it
     alias: { '@zeeli/router-api': fileURLToPath(new URL('../../packages/router-api/src/index.ts', import.meta.url)) },
   },

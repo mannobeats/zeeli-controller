@@ -179,3 +179,11 @@ test('execDirect reads the LuCI session from its page, then posts the escaped co
   fetchMock.mockResolvedValueOnce({ status: 403, text: async () => '' });
   await expect(t.execDirect('/bin/a b')).rejects.toThrow('The router didn’t allow that command.');
 });
+
+test('a reset connection, before or while the agent answers, is reported as offline so a confirm retries', async () => {
+  const t = createGlTransport('/base');
+  fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+  expect(await kindOf(t.zeeli('firewall', 'confirm', { token: 'x' }))).toBe('offline');
+  fetchMock.mockResolvedValueOnce({ json: async () => Promise.reject(new TypeError('network error')) });
+  expect(await kindOf(t.zeeli('firewall', 'confirm', { token: 'x' }))).toBe('offline');
+});

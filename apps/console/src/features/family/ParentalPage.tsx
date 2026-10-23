@@ -26,6 +26,8 @@ import { Note, PageHeader, Panel, ToneText } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
 import { TextArea } from '../../ui/TextArea.tsx';
+import { DevicePick } from '../clients/DevicePick.tsx';
+import { PolicyNote } from '../policies/AgentNote.tsx';
 import { buildProfile, dailyBedtime, newProfile, type PresetDefaults, weekBedtimes } from './profile.ts';
 
 const DAY = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun' } as const;
@@ -111,6 +113,9 @@ export default function ParentalPage() {
               </>
             }
           />
+          <PolicyNote>
+            Profiles use the router’s parental control. For one-off pauses and rules that cover groups of devices, see
+          </PolicyNote>
           {enabled || !profiles.length ? null : (
             <div className="panel notice">Parental control is off, so none of these profiles apply. Turn it on at the top right.</div>
           )}
@@ -516,39 +521,11 @@ function DevicePicker({
   clients: Client[];
   others: Profile[];
 }) {
-  const [q, setQ] = useState('');
   const taken = new Map(others.flatMap((x) => x.macs.map((m) => [m, x.name] as const)));
-  const picked = new Set(macs);
-  const needle = q.trim().toLowerCase();
-  const devices = [...clients]
-    .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name))
-    .filter((d) => !needle || `${d.name} ${d.ip} ${d.mac}`.toLowerCase().includes(needle));
   return (
     <section className="group">
       <h3>Devices</h3>
-      <label className="search">
-        <IconSearch size={16} stroke={1.75} />
-        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a device" aria-label="Find a device" />
-      </label>
-      <div className="dev-pick">
-        {devices.map((d) => {
-          const other = taken.get(d.mac);
-          return (
-            <label key={d.mac} className={`pick${other ? ' taken' : ''}`}>
-              <input
-                type="checkbox"
-                checked={picked.has(d.mac)}
-                disabled={Boolean(other)}
-                onChange={(e) => onChange(e.target.checked ? [...macs, d.mac] : macs.filter((m) => m !== d.mac))}
-              />
-              <span className={`mark${d.online ? ' ok' : ''}`} />
-              <DeviceIcon client={d} />
-              <span className="pick-name">{d.name}</span>
-              <span className="pick-sub">{other ? `In ${other}` : d.ip}</span>
-            </label>
-          );
-        })}
-      </div>
+      <DevicePick clients={clients} value={macs} onChange={onChange} taken={taken} />
     </section>
   );
 }

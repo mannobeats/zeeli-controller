@@ -1,0 +1,18 @@
+#!/bin/sh
+# After a firewall change, and once the answer to it has gone out (so one second later), end the
+# TCP connections made to this router's own web ports. fw4 lets established connections through
+# before it looks at zone rules, so a confirm sent over the connection that made the change would
+# prove nothing; with these gone, the next request has to pass the new rules. Returns at once.
+(
+  sleep 1
+  for ip in $(ip -o -4 addr show scope global | awk '{print $4}' | cut -d/ -f1); do
+    for port in 80 443; do
+      conntrack -D -p tcp -d "$ip" --dport "$port" >/dev/null 2>&1
+    done
+  done
+  for ip in $(ip -o -6 addr show scope global | awk '{print $4}' | cut -d/ -f1); do
+    for port in 80 443; do
+      conntrack -D -f ipv6 -p tcp -d "$ip" --dport "$port" >/dev/null 2>&1
+    done
+  done
+) </dev/null >/dev/null 2>&1 &

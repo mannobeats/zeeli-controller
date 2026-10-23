@@ -101,8 +101,9 @@ export const wifi = (t: Transport) => ({
         bands: i.mlo_band ?? [],
         radio: null,
       });
+    // networks made through the Zeeli agent (`zeeli_*`) have their own list
     for (const r of cfg.res ?? [])
-      for (const i of r.ifaces)
+      for (const i of r.ifaces.filter((x) => !x.name.startsWith('zeeli_')))
         out.push({
           name: i.name,
           kind: 'band',

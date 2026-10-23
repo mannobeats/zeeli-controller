@@ -53,6 +53,7 @@ export const SECTIONS: Section[] = [
         pages: [
           { id: 'dashboard', title: 'Dashboard', keywords: 'home status health' },
           { id: 'activity', title: 'Activity', keywords: 'events log timeline history' },
+          { id: 'alerts', title: 'Alerts', keywords: 'notifications unread bell new device wan down temperature hot acknowledge' },
         ],
       },
     ],
@@ -68,7 +69,14 @@ export const SECTIONS: Section[] = [
     title: 'Clients',
     icon: IconDevices,
     panel: true,
-    groups: [{ pages: [{ id: 'clients', title: 'Clients', keywords: 'devices block forget rename limit' }] }],
+    groups: [
+      {
+        pages: [
+          { id: 'clients', title: 'Clients', keywords: 'devices block forget rename limit' },
+          { id: 'groups', title: 'Groups', keywords: 'people kids devices sets members' },
+        ],
+      },
+    ],
   },
   {
     id: 'insights',
@@ -125,6 +133,7 @@ export const SECTIONS: Section[] = [
     groups: [
       {
         pages: [
+          { id: 'policies', title: 'Policies', keywords: 'block pause allow limit speed schedule bedtime sites kids groups' },
           { id: 'firewall', title: 'Firewall rules', keywords: 'allow drop reject zone' },
           { id: 'forwarding', title: 'Port forwarding', keywords: 'nat open port' },
           { id: 'dns', title: 'DNS and filtering', keywords: 'adguard encrypted dns doh dot rebinding' },
@@ -198,6 +207,7 @@ export const SECTIONS: Section[] = [
         pages: [
           { id: 'device', title: 'Device', keywords: 'hardware fan led reboot cpu memory' },
           { id: 'firmware', title: 'Firmware', keywords: 'update upgrade console release version' },
+          { id: 'backup', title: 'Backup and restore', keywords: 'snapshot restore point export import save settings' },
           { id: 'schedules', title: 'Schedules', keywords: 'reboot led wifi timer' },
           { id: 'time', title: 'Time zone' },
           { id: 'logs', title: 'Logs', keywords: 'syslog kernel' },

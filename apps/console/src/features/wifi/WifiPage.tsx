@@ -1,11 +1,13 @@
+import { IconPlus } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { type Radio, SECURITY, type WifiNetwork, type WifiRole } from '@zeeli/router-api';
 import { useState } from 'react';
-import { useClients, useWrite } from '../../api/queries.ts';
+import { useAgent, useClients, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { bandCategory, bandLink, type Category } from '../../lib/devices.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { BAND_LABEL } from '../../lib/format.ts';
+import { Button } from '../../ui/Button.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
 import { Swatch } from '../../ui/DeviceIcon.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
@@ -13,6 +15,7 @@ import { SelectField, Switch, SwitchRow, TextField } from '../../ui/fields.tsx';
 import { Chip, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
+import { OwnNetworks } from './OwnNetworks.tsx';
 
 const ROLES: [WifiRole, string, string][] = [
   ['main', 'Your networks', ''],
@@ -27,6 +30,8 @@ export default function WifiPage() {
   const clients = useClients().data ?? [];
   const { toast, confirm } = useFeedback();
   const [editing, setEditing] = useState<WifiNetwork | null>(null);
+  const [adding, setAdding] = useState(false);
+  const agent = useAgent().data;
   const toggle = useWrite(
     ({ list, on }: { list: WifiNetwork[]; on: boolean }) => Promise.all(list.map((n) => api.wifi.setEnabled(n, on))),
     [['wifi'], ['status']],
@@ -65,7 +70,16 @@ export default function WifiPage() {
     <Loaded query={query} title="WiFi">
       {(nets) => (
         <>
-          <PageHeader title="WiFi" />
+          <PageHeader
+            title="WiFi"
+            actions={
+              agent ? (
+                <Button variant="strong" icon={<IconPlus size={16} />} onClick={() => setAdding(true)}>
+                  Add network
+                </Button>
+              ) : undefined
+            }
+          />
           {ROLES.map(([role, title, note]) => {
             const list = nets.filter((n) => n.role === role);
             if (!list.length) return null;
@@ -138,6 +152,7 @@ export default function WifiPage() {
               </Panel>
             );
           })}
+          <OwnNetworks adding={adding} onAddClosed={() => setAdding(false)} />
           {editing ? <WifiSheet key={editing.name} network={editing} onClose={() => setEditing(null)} /> : null}
         </>
       )}

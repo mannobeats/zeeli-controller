@@ -18,8 +18,10 @@ const insights = () => import('../features/insights/pages.tsx');
 export const PAGE_COMPONENTS: Record<string, LazyExoticComponent<ComponentType>> = {
   dashboard: from(() => import('../features/dashboard/DashboardPage.tsx')),
   activity: from(() => import('../features/activity/ActivityPage.tsx')),
+  alerts: from(() => import('../features/alerts/AlertsPage.tsx')),
   topology: from(() => import('../features/topology/TopologyPage.tsx')),
   clients: from(() => import('../features/clients/ClientsPage.tsx')),
+  groups: from(() => import('../features/clients/GroupsPage.tsx')),
   traffic: from(insights, 'TrafficPage'),
   'dns-insights': from(insights, 'DnsInsightsPage'),
 
@@ -38,6 +40,7 @@ export const PAGE_COMPONENTS: Record<string, LazyExoticComponent<ComponentType>>
   accel: from(advanced, 'AccelPage'),
   edgerouter: from(advanced, 'EdgeRouterPage'),
 
+  policies: from(() => import('../features/policies/PoliciesPage.tsx')),
   firewall: from(() => import('../features/firewall/FirewallPage.tsx')),
   forwarding: from(security, 'ForwardingPage'),
   dns: from(() => import('../features/dns/DnsPage.tsx')),
@@ -69,6 +72,7 @@ export const PAGE_COMPONENTS: Record<string, LazyExoticComponent<ComponentType>>
 
   device: from(system, 'DevicePage'),
   firmware: from(system, 'FirmwarePage'),
+  backup: from(() => import('../features/system/BackupPage.tsx')),
   schedules: from(system, 'SchedulesPage'),
   time: from(system, 'TimePage'),
   logs: from(system, 'LogsPage'),

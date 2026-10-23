@@ -1,0 +1,13 @@
+#!/bin/sh /etc/rc.common
+# Runs the WiFi schedule loop (see /usr/libexec/zeeli/zeeli-wifi-schedule).
+
+START=96
+STOP=10
+USE_PROCD=1
+
+start_service() {
+	procd_open_instance
+	procd_set_param command /usr/libexec/zeeli/zeeli-wifi-schedule
+	procd_set_param respawn
+	procd_close_instance
+}

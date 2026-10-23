@@ -1,0 +1,14 @@
+#!/bin/sh /etc/rc.common
+# At boot, before the firewall (19), dropbear (19) and network (20) start, put back any change
+# that was still waiting for its confirm when the router went down. The change is on flash, so
+# without this a power cycle inside the 30 seconds would keep a change nobody confirmed.
+# Only the files are restored: the services read them as they start.
+
+START=18
+
+start() {
+	# an update restarts every agent service; that is not a boot, and a change may really be waiting
+	[ -e /var/run/zeeli-rollback-booted ] && return 0
+	: >/var/run/zeeli-rollback-booted
+	/usr/bin/ucode -e "import { recover } from 'zeeli.rollback'; recover();"
+}

@@ -1,0 +1,17 @@
+#!/bin/sh
+# Enforces the schedules of Zeeli WiFi networks ("Kids off 22:00 to 07:00"). Once a minute it asks
+# zeeli.wifi to compare the clock with every schedule; when a network has to switch, it applies
+# WiFi once. The first pass runs at start, so a router that rebooted inside a window turns the
+# network off again. It never touches crontab: this firmware runs crond from /tmp/gl_crontabs,
+# which GL rebuilds on its own.
+
+ubus -t 60 wait_for zeeli.wifi 2>/dev/null
+
+while :; do
+  out=$(ubus -t 20 call zeeli.wifi tick 2>/dev/null)
+  if [ "$(jsonfilter -s "$out" -e '@.changed' 2>/dev/null)" = true ]; then
+    ubus -t 90 call zeeli.wifi apply >/dev/null 2>&1
+  fi
+  s=$(date +%S)
+  sleep $((60 - ${s#0}))
+done

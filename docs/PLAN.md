@@ -130,6 +130,17 @@ The columns:
 | Multiple routers or sites | Yes                                 | One router    | Later: one console managing several Zeeli routers                                                                  | After the firmware work                  |
 | Hardware                  | CPU, temperature, ports             | Facts and fan | Port speeds and errors, CPU and RAM history, thermal history                                                       | Agent collector                          |
 
+## Status (2026-10-22)
+
+Phases 1 to 6 are built and running on the test router. They live in the agent ([`tools/router/agent`](../tools/router/agent/README.md)), with its areas `system`, `wifi`, `stats`, `groups`, `policies`, `backup`, `firewall` and `ports`. Each was checked live on the GL-BE9300.
+
+Still open:
+- policy actions that route through a VPN or a chosen WAN
+- MLO network creation and per-device WiFi keys
+- drag-to-reorder for rules and policies (today: up and down buttons)
+- mesh node details, untested because no node is attached
+- phase 7, Zeeli's own firmware
+
 ## 6. Order of work
 
 Each phase ships as releases, with every gate passing and tests on the real router.

@@ -28,6 +28,9 @@ import { Address, Chip, Empty, Note, PageHeader, Panel, Stack, ToneText } from '
 import { Loaded } from '../../ui/Loading.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
+import { MeshNodes } from './mesh-nodes.tsx';
+import { deviceColumns, linkColumns, usePortLinks } from './port-links.tsx';
+import { PortProfiles, UnplacedNote } from './ports-agent.tsx';
 
 /* ======================= Ethernet ports ======================= */
 
@@ -46,6 +49,7 @@ export function PortsPage() {
     queryFn: async () => ({ ports: await api.internet.ports(), networks: await api.networks.list() }),
   });
   const { toast, confirm } = useFeedback();
+  const links = usePortLinks();
   const [editing, setEditing] = useState<EthernetPort | null>(null);
   const role = useWrite(({ port, to }: { port: EthernetPort; to: 'wan' | 'lan' }) => api.internet.setPortRole(port, to), [['ports']]);
 
@@ -99,6 +103,7 @@ export function PortsPage() {
                 onRowClick={setEditing}
                 columns={[
                   { key: 'port', header: 'Port', phone: 'title', cell: (p) => <span className="name">{p.label}</span> },
+                  ...linkColumns(links),
                   {
                     key: 'role',
                     header: 'Role',
@@ -131,6 +136,7 @@ export function PortsPage() {
                         vlanName(p.untagged)
                       ),
                   },
+                  ...deviceColumns(links),
                   {
                     key: 'act',
                     header: '',
@@ -151,7 +157,9 @@ export function PortsPage() {
                   },
                 ]}
               />
+              <UnplacedNote links={links} />
             </Panel>
+            <PortProfiles ports={ports} networks={networks} />
             {editing ? (
               <PortSheet
                 key={editing.name}
@@ -809,6 +817,7 @@ export function MeshPage() {
               {m.enabled ? <Button onClick={() => setAdding(true)}>Add nodes</Button> : null}
             </div>
           </Panel>
+          {m.enabled ? <MeshNodes /> : null}
           {adding ? <MeshScan onClose={() => setAdding(false)} /> : null}
         </>
       )}

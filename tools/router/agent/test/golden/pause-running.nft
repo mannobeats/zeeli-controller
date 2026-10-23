@@ -1,0 +1,23 @@
+table inet zeeli_check {
+# Written by the Zeeli agent from your policies. Changes made here are overwritten.
+
+	set zeeli_c_000005 {
+		type ether_addr
+		elements = {
+			02:5e:e1:31:90:f4,
+		}
+	}
+
+	chain zeeli_p_000005 {
+		ether saddr @zeeli_c_000005 ct direction original counter drop
+	}
+
+	chain zeeli_forward {
+		type filter hook forward priority -1; policy accept;
+		jump zeeli_p_000005
+	}
+
+	chain zeeli_rev {
+		counter comment "zeeli-rev:b1e53b70"
+	}
+}

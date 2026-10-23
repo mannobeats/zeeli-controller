@@ -21,6 +21,7 @@ import { useFeedback } from '../../ui/feedback.tsx';
 import { SelectField, SwitchRow, TextField } from '../../ui/fields.tsx';
 import { Chip, Empty, KeyValues, Note, PageHeader, Panel, ToneText } from '../../ui/Layout.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
+import { WanHealth } from './WanHealth.tsx';
 
 const KIND_ICON: Record<string, Icon> = { wifi: IconWifi, wired: IconPlugConnected, phone: IconDeviceMobile, cellular: IconCellSignal5 };
 const dbm = (v: number | null) => (v === null ? '' : `${String(v).replace('-', '−')} dBm`);
@@ -36,6 +37,7 @@ export default function InternetPage() {
     <>
       <PageHeader title="Internet" />
       <Uplinks wan={wan.data} rep={rep} onSetUpWan={() => setSheet('wan')} />
+      <WanHealth />
       <RepeaterPanel rep={rep} onSettings={() => setSheet('repeater')} />
       <SavedNetworks current={rep?.connected ? rep.ssid : null} />
       <Nearby onJoin={setJoining} />

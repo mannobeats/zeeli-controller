@@ -1,0 +1,11 @@
+#!/bin/sh
+# Delete a backup file five minutes after it was made, if the console never said it had it.
+# A backup holds the router's passwords and keys. Usage: zeeli-backup-expire backup-<n>.tar.gz
+case "${1:-}" in
+  backup-[0-9]*.tar.gz) ;;
+  *) exit 1 ;;
+esac
+case "$1" in
+  *[!0-9a-z.-]*) exit 1 ;;
+esac
+( sleep 300; rm -f "/tmp/zeeli/$1" ) </dev/null >/dev/null 2>&1 &
