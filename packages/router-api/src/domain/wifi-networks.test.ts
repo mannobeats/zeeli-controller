@@ -103,6 +103,44 @@ describe('making and changing networks', () => {
   });
 });
 
+describe('multi-link (MLO) networks', () => {
+  const mlo: OwnWifiInput = { ...input, ssid: 'Wi-Fi 7', bands: ['5g', '6g'], security: 'sae', mlo: true };
+
+  test('the overview says multi-link is possible and on which bands', async () => {
+    expect((await api.wifiNetworks.overview()).mlo).toEqual({ supported: true, bands: ['2g', '5g', '6g'], reason: null });
+    expect((await mine()).every((n) => !n.mlo)).toBe(true);
+  });
+
+  test('create makes one network over its bands, and WPA3 is the default', async () => {
+    const { id } = await api.wifiNetworks.create({ ...mlo, security: undefined as never });
+    expect((await mine()).find((n) => n.id === id)).toMatchObject({ ssid: 'Wi-Fi 7', mlo: true, bands: ['5g', '6g'], security: 'sae' });
+  });
+
+  test('refuses one band and anything but WPA3', async () => {
+    const fail = (patch: Partial<OwnWifiInput>) => api.wifiNetworks.create({ ...mlo, ...patch });
+    await expect(fail({ bands: ['5g'] })).rejects.toThrow('Multi-link needs at least two bands.');
+    await expect(fail({ security: 'sae-mixed' })).rejects.toThrow('Multi-link networks need WPA3.');
+  });
+
+  test('an edit can rename and rekey, but not move or reshape', async () => {
+    const { id } = await api.wifiNetworks.create(mlo);
+    await api.wifiNetworks.update(id, { ssid: 'Wi-Fi 7 Home', password: 'a different one' });
+    expect((await mine()).find((n) => n.id === id)).toMatchObject({ ssid: 'Wi-Fi 7 Home', mlo: true });
+    await expect(api.wifiNetworks.update(id, { bands: ['5g'] })).rejects.toThrow('can’t change its bands');
+    await expect(api.wifiNetworks.update(id, { network: 'main' })).rejects.toThrow('can’t move to another network');
+    await expect(api.wifiNetworks.update(id, { security: 'psk2' })).rejects.toThrow('Multi-link networks need WPA3.');
+    await api.wifiNetworks.remove(id);
+    expect((await mine()).map((n) => n.id)).not.toContain(id);
+  });
+
+  test('checkOwnWifi says the same before asking', () => {
+    const ok = { ssid: 'Fine', bands: ['5g' as const, '6g' as const], security: 'sae' as const, mlo: true };
+    expect(checkOwnWifi(ok)).toBeNull();
+    expect(checkOwnWifi({ ...ok, bands: ['5g'] })).toBe('Multi-link needs at least two bands.');
+    expect(checkOwnWifi({ ...ok, bands: ['2g', '5g'], security: 'sae-mixed' })).toBe('Multi-link networks need WPA3.');
+  });
+});
+
 describe('checkOwnWifi', () => {
   const ok = { ssid: 'Fine', bands: ['5g' as const], security: 'sae' as const };
   test('counts the name in bytes and refuses control characters', () => {

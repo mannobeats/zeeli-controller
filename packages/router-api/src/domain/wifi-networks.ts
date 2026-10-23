@@ -55,6 +55,8 @@ export interface OwnWifi extends WifiEntry {
   owner: 'zeeli';
   bands: OwnBand[];
   security: OwnSecurity;
+  /** One multi-link (Wi-Fi 7) network across its bands, rather than one network per band. */
+  mlo: boolean;
   /** Held off by its schedule right now. */
   scheduledOff: boolean;
   options: WifiOptions;
@@ -77,9 +79,18 @@ export interface JoinableNetwork {
   disabled: boolean;
 }
 
+/** Whether the router can make another multi-link network. `reason` says why not, for the person. */
+export interface MloSupport {
+  supported: boolean;
+  /** The bands the firmware lets a multi-link network join. */
+  bands: OwnBand[];
+  reason: string | null;
+}
+
 export interface WifiOverview {
   networks: WifiEntry[];
   radios: RadioSlots[];
+  mlo: MloSupport;
   lanNetworks: JoinableNetwork[];
   /** Changes saved on the router but not yet loaded into the radios. */
   pending: boolean;
@@ -95,6 +106,8 @@ export interface OwnWifiInput {
   isolate: boolean;
   options: Partial<WifiOptions>;
   schedule?: WifiSchedule | null;
+  /** One multi-link network over two or more bands. Needs WPA3; can’t be changed once made. */
+  mlo?: boolean;
 }
 
 export const isOwn = (n: WifiEntry): n is OwnWifi => n.owner === 'zeeli';
@@ -105,7 +118,7 @@ export const BAND_RADIO: Record<OwnBand, string> = { '2g': '2.4 GHz', '5g': '5 G
  * The agent's limits, so a form can say no before asking, in the agent's own words: SSIDs are
  * bytes, keys are printable ASCII. Leave `password` out to skip it (an edit that keeps the key).
  */
-export function checkOwnWifi(input: Pick<OwnWifiInput, 'ssid' | 'bands' | 'security'> & { password?: string }): string | null {
+export function checkOwnWifi(input: Pick<OwnWifiInput, 'ssid' | 'bands' | 'security' | 'mlo'> & { password?: string }): string | null {
   const bytes = new TextEncoder().encode(input.ssid).length;
   if (bytes < 1 || bytes > 32) return 'The network name must be 1 to 32 bytes.';
   // biome-ignore lint/suspicious/noControlCharactersInRegex: that's exactly what is being refused
@@ -114,6 +127,8 @@ export function checkOwnWifi(input: Pick<OwnWifiInput, 'ssid' | 'bands' | 'secur
   if (pw !== undefined && (pw.length < 8 || pw.length > 63)) return 'The password must be 8 to 63 characters.';
   if (pw !== undefined && !/^[\x20-\x7e]+$/.test(pw)) return 'The password can only use plain letters, numbers, spaces and punctuation.';
   if (!input.bands.length) return 'Pick at least one band.';
+  if (input.mlo && input.bands.length < 2) return 'Multi-link needs at least two bands.';
+  if (input.mlo && input.security !== 'sae') return 'Multi-link networks need WPA3.';
   if (input.bands.includes('6g') && input.security !== 'sae') return '6 GHz needs WPA3. Choose WPA3, or leave 6 GHz out.';
   return null;
 }
