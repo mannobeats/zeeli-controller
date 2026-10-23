@@ -14,6 +14,12 @@ import { OwnNetworkSheet } from './OwnNetworkSheet.tsx';
 import { OwnTable } from './OwnTable.tsx';
 import { clientsOn } from './own-clients.ts';
 
+/** What opens the add sheet: nothing yet, or a network and name from a link. */
+export interface Prefill {
+  network?: string;
+  ssid?: string;
+}
+
 const nameOf = (list: OwnWifi[]) => (list.length === 1 ? `“${list[0]?.ssid}”` : plural(list.length, 'network'));
 
 /** Switch, delete and apply, each followed by one WiFi reload for the whole batch. */
@@ -84,7 +90,7 @@ function useOwnActions() {
 }
 
 /** Networks made here (not the router’s own slots): the table, the add and edit sheet, bulk actions. */
-export function OwnNetworks({ adding, onAddClosed }: { adding: boolean; onAddClosed: () => void }) {
+export function OwnNetworks({ adding, onAddClosed }: { adding: Prefill | null; onAddClosed: () => void }) {
   const agent = useAgent().data;
   const overview = useQuery({ queryKey: ['wifi-networks'], queryFn: api.wifiNetworks.overview, enabled: Boolean(agent) });
   const networks = useQuery({ queryKey: ['networks'], queryFn: api.networks.list, staleTime: 30_000 });
@@ -132,7 +138,7 @@ export function OwnNetworks({ adding, onAddClosed }: { adding: boolean; onAddClo
 
 interface SheetsProps {
   editing: OwnWifi | null;
-  adding: boolean;
+  adding: Prefill | null;
   overview: WifiOverview;
   labels: Record<string, string>;
   onClose: () => void;
@@ -142,7 +148,16 @@ interface SheetsProps {
 function NetworkSheets({ editing, adding, overview, labels, onClose }: SheetsProps) {
   if (editing?.mlo) return <MloDetails key={editing.id} network={editing} labels={labels} onClose={onClose} />;
   if (!editing && !adding) return null;
-  return <OwnNetworkSheet key={editing?.id ?? 'new'} network={editing} overview={overview} labels={labels} onClose={onClose} />;
+  return (
+    <OwnNetworkSheet
+      key={editing?.id ?? 'new'}
+      network={editing}
+      overview={overview}
+      labels={labels}
+      prefill={adding ?? undefined}
+      onClose={onClose}
+    />
+  );
 }
 
 /** What waits on the person: a restart for a deleted multi-link network (which also holds back apply), or unapplied changes. */

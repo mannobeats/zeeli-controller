@@ -7,6 +7,7 @@ import { Button } from '../../ui/Button.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { KeyValues } from '../../ui/Layout.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
+import { ShareButton } from './ShareWifi.tsx';
 
 export const MLO_LOCKED =
   'On this firmware a multi-link network can’t be changed or switched off while the router runs. Delete it and make it again.';
@@ -77,6 +78,9 @@ export function MloDetails({ network, labels, onClose }: Props) {
           ['Password', secret],
         ]}
       />
+      <div>
+        <ShareButton ssid={network.ssid} hidden={network.hidden} getPassword={() => password ?? api.wifiNetworks.reveal(network.id)} />
+      </div>
     </Sheet>
   );
 }

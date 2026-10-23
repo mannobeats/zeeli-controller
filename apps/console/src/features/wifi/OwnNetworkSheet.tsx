@@ -14,12 +14,15 @@ import { useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { bandCategory } from '../../lib/devices.ts';
 import { errorMessage } from '../../lib/errors.ts';
+import { Button } from '../../ui/Button.tsx';
 import { Swatch } from '../../ui/DeviceIcon.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { Row2, SelectField, SwitchRow, TextField, WeekPicker } from '../../ui/fields.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
 import { MloRow } from './MloRow.tsx';
 import { blankForm, formOf, formProblem, generatePassword, type OwnForm, toInput, toPatch } from './own-form.ts';
+import { HOURS, PRESETS, type PresetId, presetPatch } from './presets.ts';
+import { CopyButton, ShareButton } from './ShareWifi.tsx';
 
 const SECURITY_CHOICES: [OwnSecurity, string][] = [
   ['sae-mixed', SECURITY['sae-mixed'] ?? 'WPA2/WPA3'],
@@ -40,13 +43,16 @@ interface Props {
   overview: WifiOverview;
   /** The networks page's names for networks, by id. */
   labels: Record<string, string>;
+  /** A new network opened from a link: the network it joins and the name to start with. */
+  prefill?: { network?: string; ssid?: string };
   onClose: () => void;
 }
 
-export function OwnNetworkSheet({ network, overview, labels, onClose }: Props) {
+export function OwnNetworkSheet({ network, overview, labels, prefill, onClose }: Props) {
   const { toast, confirm } = useFeedback();
   const editing = network !== null;
-  const [form, setForm] = useState<OwnForm>(() => (network ? formOf(network) : blankForm(firstNetwork(overview.lanNetworks))));
+  const [form, setForm] = useState<OwnForm>(() => (network ? formOf(network) : startForm(overview, prefill)));
+  const [preset, setPreset] = useState<PresetId | null>(null);
   const set: Setter = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
   const save = useWrite(
     async (f: OwnForm) => {
@@ -88,6 +94,8 @@ export function OwnNetworkSheet({ network, overview, labels, onClose }: Props) {
     }
   }
 
+  const merge = (patch: Partial<OwnForm>) => setForm((f) => ({ ...f, ...patch }));
+
   return (
     <Sheet
       open
@@ -99,9 +107,28 @@ export function OwnNetworkSheet({ network, overview, labels, onClose }: Props) {
       danger={network ? { label: 'Delete network', onClick: remove } : undefined}
       wide
     >
+      {editing ? null : (
+        <PresetPicker
+          value={preset}
+          onPick={(id) => {
+            setPreset(id);
+            merge(presetPatch(id, overview, labels));
+          }}
+        />
+      )}
       <TextField label="Network name" value={form.ssid} onChange={set('ssid')} hint="1 to 32 bytes. The name devices see." />
       <PasswordField value={form.password} onChange={set('password')} editing={editing} id={network?.id} />
-      {editing ? null : <MloRow form={form} overview={overview} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} />}
+      {network ? (
+        <div>
+          <ShareButton
+            ssid={form.ssid || network.ssid}
+            hidden={form.hidden}
+            getPassword={() => form.password || api.wifiNetworks.reveal(network.id)}
+          />
+        </div>
+      ) : (
+        <MloRow form={form} overview={overview} onChange={merge} />
+      )}
       <BandPicker form={form} set={set} overview={overview} current={network?.bands ?? []} />
       <JoinFields form={form} set={set} networks={overview.lanNetworks} labels={labels} />
       <SwitchRow label="Hide network name" hint="Devices have to type the name to join." checked={form.hidden} onChange={set('hidden')} />
@@ -111,9 +138,33 @@ export function OwnNetworkSheet({ network, overview, labels, onClose }: Props) {
         checked={form.isolate}
         onChange={set('isolate')}
       />
-      <ScheduleFields form={form} set={set} />
+      <ScheduleFields form={form} set={set} onHours={preset === 'guest' ? merge : undefined} />
       <AdvancedFields form={form} set={set} />
     </Sheet>
+  );
+}
+
+/** A blank form; a link may have chosen the network (if it exists) and the name. */
+function startForm(overview: WifiOverview, prefill: Props['prefill']): OwnForm {
+  const nets = overview.lanNetworks;
+  const wanted = nets.find((n) => n.id === prefill?.network && !n.disabled)?.id;
+  return { ...blankForm(wanted ?? firstNetwork(nets)), ssid: prefill?.ssid ?? '' };
+}
+
+/** Starting points for a new network. Everything they fill stays editable. */
+function PresetPicker({ value, onPick }: { value: PresetId | null; onPick: (id: PresetId) => void }) {
+  return (
+    <fieldset className="preset-picks">
+      <legend>Start from</legend>
+      {PRESETS.map((p) => (
+        <Button key={p.id} variant="ghost" aria-pressed={value === p.id} onClick={() => onPick(p.id)}>
+          {p.label}
+        </Button>
+      ))}
+      <span className="hint">
+        {PRESETS.find((p) => p.id === value)?.hint ?? 'Pick one to fill in security, bands and the network. You can change them.'}
+      </span>
+    </fieldset>
   );
 }
 
@@ -134,6 +185,7 @@ function PasswordField({
   const input = useId();
   const [shown, setShown] = useState(false);
   const [error, setError] = useState('');
+  const badLength = value !== '' && (value.length < 8 || value.length > 63);
 
   async function showCurrent() {
     try {
@@ -162,6 +214,11 @@ function PasswordField({
         <button type="button" className="reveal" onClick={() => setShown((s) => !s)} aria-label={shown ? 'Hide password' : 'Show password'}>
           {shown ? 'Hide' : 'Show'}
         </button>
+        {value ? (
+          <span className="reveal">
+            <CopyButton text={value} what="password" />
+          </span>
+        ) : null}
         <button
           type="button"
           className="reveal"
@@ -178,7 +235,12 @@ function PasswordField({
           </button>
         ) : null}
       </span>
-      <span className="hint">{error || '8 to 63 characters. Generate makes a strong one you can read out.'}</span>
+      <span className="hint" aria-live="polite">
+        {error ||
+          (badLength
+            ? 'A WPA password is 8 to 63 characters.'
+            : '8 to 63 characters. Generate makes four words and a number you can read out.')}
+      </span>
     </div>
   );
 }
@@ -252,10 +314,20 @@ function JoinFields({
   );
 }
 
-function ScheduleFields({ form, set }: { form: OwnForm; set: Setter }) {
+function ScheduleFields({ form, set, onHours }: { form: OwnForm; set: Setter; onHours?: (patch: Partial<OwnForm>) => void }) {
   return (
     <section className="group">
       <h3>Schedule</h3>
+      {onHours ? (
+        <div className="preset-picks">
+          <span className="hint">Only on these hours:</span>
+          {HOURS.map((h) => (
+            <Button key={h.label} variant="ghost" onClick={() => onHours(h.patch)}>
+              {h.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
       <SwitchRow
         label="Turn off at set times"
         hint="The network goes quiet in this window, even if devices are on it."

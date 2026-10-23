@@ -69,7 +69,7 @@ test('adds a network: generated password, two bands, a schedule', async () => {
   const s = await sheet();
   await user.type(s.getByLabelText(/^Network name/), 'Garage');
   await user.click(s.getByRole('button', { name: 'Generate' }));
-  expect((s.getByLabelText(/^Password/) as HTMLInputElement).value).toMatch(/^[a-z2-9]{4}(-[a-z2-9]{4}){3}$/);
+  expect((s.getByLabelText(/^Password/) as HTMLInputElement).value).toMatch(/^[a-z]+(-[a-z]+){3}-\d{3}$/);
   await user.click(s.getByRole('checkbox', { name: /^2\.4 GHz/ }));
   await user.selectOptions(s.getByLabelText(/^Joins network/), 'Lab');
   await user.click(s.getByRole('checkbox', { name: 'Turn off at set times' }));
