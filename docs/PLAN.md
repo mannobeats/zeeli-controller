@@ -135,7 +135,6 @@ The columns:
 Phases 1 to 6 are built and running on the test router. They live in the agent ([`tools/router/agent`](../tools/router/agent/README.md)), with its areas `system`, `wifi`, `stats`, `groups`, `policies`, `backup`, `firewall` and `ports`. Each was checked live on the GL-BE9300.
 
 Still open:
-- policy actions that route through a VPN or a chosen WAN
 - per-device WiFi keys
 - MLO networks beyond GL's two slots: creating works live; deleting one needs a router restart because destroying an MLD panics this driver (see the agent README)
 - drag-to-reorder for rules and policies (today: up and down buttons)

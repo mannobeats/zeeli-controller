@@ -41,15 +41,15 @@ const order = async () => (await api.policies.list()).policies;
 test('a policy picked up with the keyboard moves down the list in one reorder', async () => {
   const user = await renderPage(<PoliciesPage />);
   await table();
-  const [a, b, c] = await order();
+  const [a, b, c, ...rest] = await order();
   const reorder = vi.spyOn(api.policies, 'reorder');
   screen.getByRole('button', { name: `Move ${a?.name}` }).focus();
   await user.keyboard(' {ArrowDown}{ArrowDown} ');
   // the new order shows at once, before the router answers
   expect(within((await table()).getAllByRole('row')[3] as HTMLElement).getByRole('checkbox', { name: `${a?.name} on` })).toBeTruthy();
-  await waitFor(async () => expect((await order()).at(-1)?.id).toBe(a?.id));
+  await waitFor(async () => expect((await order())[2]?.id).toBe(a?.id));
   expect(reorder).toHaveBeenCalledTimes(1);
-  expect(reorder).toHaveBeenCalledWith([b?.id, c?.id, a?.id]);
+  expect(reorder).toHaveBeenCalledWith([b?.id, c?.id, a?.id, ...rest.map((p) => p.id)]);
 });
 
 test('dragging a policy with a pointer reorders once', async () => {
@@ -60,7 +60,7 @@ test('dragging a policy with a pointer reorders once', async () => {
   });
   await renderPage(<PoliciesPage />);
   await table();
-  const [a, b, c] = await order();
+  const [a, b, c, ...rest] = await order();
   const reorder = vi.spyOn(api.policies, 'reorder');
   const grip = screen.getByRole('button', { name: `Move ${c?.name}` });
   fireEvent.pointerDown(grip, { button: 0, clientY: 150, pointerId: 1 });
@@ -68,7 +68,7 @@ test('dragging a policy with a pointer reorders once', async () => {
   fireEvent.pointerUp(grip, { pointerId: 1 });
   await waitFor(async () => expect((await order())[0]?.id).toBe(c?.id));
   expect(reorder).toHaveBeenCalledTimes(1);
-  expect(reorder).toHaveBeenCalledWith([c?.id, a?.id, b?.id]);
+  expect(reorder).toHaveBeenCalledWith([c?.id, a?.id, b?.id, ...rest.map((p) => p.id)]);
 });
 
 test('a refused reorder puts the list back and says so', async () => {

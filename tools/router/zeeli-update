@@ -137,6 +137,13 @@ case "${1:-}" in
       /usr/bin/gl_eqos del "$(echo "${e%%=*}" | tr 'a-f' 'A-F')" || true
     done
     uci -q delete zeeli.zeeli_applied || true
+    # "route through" policies: their ip rules and routing tables (slots 1 to 15)
+    i=1; while [ "$i" -le 15 ]; do
+      ip -4 rule del pref $((5800 + i)) 2>/dev/null || true
+      ip -4 rule del pref $((5820 + i)) 2>/dev/null || true
+      ip -4 route flush table $((7700 + i)) 2>/dev/null || true
+      i=$((i + 1))
+    done
     uci -q commit zeeli || true
     rm -rf "$DEST" /usr/share/zeeli /usr/share/ucode/zeeli /usr/libexec/zeeli /etc/zeeli "$ACL" "$SELF" \
       /usr/share/gl-upload.d/zeeli /usr/share/gl-download.d/zeeli /tmp/zeeli /var/lib/zeeli
