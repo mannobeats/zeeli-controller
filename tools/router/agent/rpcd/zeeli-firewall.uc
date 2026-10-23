@@ -26,6 +26,7 @@ const FIELDS = {
 return {
 	'zeeli.firewall': {
 		zones: { call: function() { return fw.zones(); } },
+		networks: { call: function() { return fw.networks(); } },
 		forwardings: { call: function() { return fw.forwardings(); } },
 		rules: { call: function() { return fw.rules(); } },
 

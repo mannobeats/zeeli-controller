@@ -1,10 +1,15 @@
 import { screen, within } from '@testing-library/react';
-import { expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { api } from '../../api/router.ts';
 import { APPLYING, confirmDialog, expectApplied, renderPage, sheet } from '../../test/render.tsx';
 import FirewallPage from './FirewallPage.tsx';
 
 // Every firewall write waits out OpenWrt's apply-and-confirm (about 2.5 s), so these tests write sparingly.
+// This is the page on a router without the Zeeli agent, which edits through LuCI.
+beforeEach(() => {
+  vi.spyOn(api.agent, 'version').mockResolvedValue(null);
+});
+afterEach(() => vi.restoreAllMocks());
 
 const rowOf = async (name: string) =>
   within(await screen.findByRole('table', { name: 'Traffic rules' }))

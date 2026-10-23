@@ -40,6 +40,14 @@ test('zones list their policies, networks and who owns them', () => {
 	eq(filter(z, (x) => x.name == 'tailscale0')[0].editable, false);
 });
 
+test('networks list the interfaces and the zone each is in', () => {
+	const n = fw.networks().networks;
+	eq(filter(n, (x) => x.name == 'lan')[0], { name: 'lan', zone: 'lan' });
+	eq(filter(n, (x) => x.name == 'secondwan')[0], { name: 'secondwan', zone: 'wan' });
+	eq(filter(n, (x) => x.name == 'tethering6')[0], { name: 'tethering6', zone: null });
+	eq(length(filter(n, (x) => x.name == 'loopback')), 0);
+});
+
 test('a zone change snapshots, writes, reloads the firewall and hands back a token', () => {
 	const before = file();
 	const r = fw.zone_update({ name: 'guest', input: 'ACCEPT', forward: 'DROP', masquerade: true, mssClamp: true });

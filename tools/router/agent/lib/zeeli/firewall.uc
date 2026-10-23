@@ -62,6 +62,18 @@ function zones() {
 	return { zones: map(sectionsOf(cursor().get_all('firewall') ?? {}, 'zone'), zoneRow) };
 }
 
+/** Every network interface and the zone it is in, for choosing what a zone covers. */
+function networks() {
+	const c = cursor();
+	const zonesNow = sectionsOf(c.get_all('firewall') ?? {}, 'zone');
+	const found = [];
+	c.foreach('network', 'interface', (s) => {
+		const name = s['.name'];
+		if (name != 'loopback') push(found, { name, zone: filter(zonesNow, (z) => index(words(z.network), name) >= 0)[0]?.name });
+	});
+	return { networks: found };
+}
+
 function forwardings() {
 	const all = cursor().get_all('firewall') ?? {};
 	return {
@@ -355,4 +367,4 @@ function rule_move(a) {
 }
 
 // this ucode needs exports listed rather than marked inline
-export { zones, forwardings, rules, zone_update, forwarding_add, forwarding_remove, rule_add, rule_update, rule_enable, rule_delete, rule_move };
+export { zones, networks, forwardings, rules, zone_update, forwarding_add, forwarding_remove, rule_add, rule_update, rule_enable, rule_delete, rule_move };
