@@ -8,7 +8,6 @@ afterEach(() => vi.restoreAllMocks());
 
 const table = async () => within(await screen.findByRole('table', { name: 'Policies' }));
 const rowOf = async (text: string) => (await table()).getAllByText(text, { exact: false })[0]?.closest('tr') as HTMLElement;
-const enabled = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
 const names = async () => (await api.policies.list()).policies.map((p) => p.name);
 const preview = (s: ReturnType<typeof within>) => s.getByTestId('policy-preview').textContent;
 
@@ -34,15 +33,53 @@ test('a policy switches off and on from its row', async () => {
   await expectToast('No TikTok turned on');
 });
 
-test('policies move up and down the list', async () => {
+// the demo router keeps its state between tests, so each one starts from whatever order it finds
+const order = async () => (await api.policies.list()).policies;
+
+test('a policy picked up with the keyboard moves down the list in one reorder', async () => {
   const user = await renderPage(<PoliciesPage />);
   await table();
-  expect((screen.getByRole('button', { name: 'Move Bedtime up' }) as HTMLButtonElement).disabled).toBe(true);
-  await user.click(screen.getByRole('button', { name: 'Move Bedtime down' }));
-  await waitFor(() => expect(enabled('Move Bedtime up').disabled).toBe(false));
-  expect((await names()).slice(0, 2)).toEqual(['No TikTok', 'Bedtime']);
-  await user.click(enabled('Move Bedtime up'));
-  await waitFor(async () => expect((await names()).slice(0, 2)).toEqual(['Bedtime', 'No TikTok']));
+  const [a, b, c] = await order();
+  const reorder = vi.spyOn(api.policies, 'reorder');
+  screen.getByRole('button', { name: `Move ${a?.name}` }).focus();
+  await user.keyboard(' {ArrowDown}{ArrowDown} ');
+  // the new order shows at once, before the router answers
+  expect(within((await table()).getAllByRole('row')[3] as HTMLElement).getByRole('checkbox', { name: `${a?.name} on` })).toBeTruthy();
+  await waitFor(async () => expect((await order()).at(-1)?.id).toBe(a?.id));
+  expect(reorder).toHaveBeenCalledTimes(1);
+  expect(reorder).toHaveBeenCalledWith([b?.id, c?.id, a?.id]);
+});
+
+test('dragging a policy with a pointer reorders once', async () => {
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const row = this.closest('tr');
+    const i = row?.parentElement ? Array.from(row.parentElement.children).indexOf(row) : 0;
+    return { top: i * 60, bottom: i * 60 + 60, left: 0, right: 100, width: 100, height: 60, x: 0, y: i * 60, toJSON: () => ({}) };
+  });
+  await renderPage(<PoliciesPage />);
+  await table();
+  const [a, b, c] = await order();
+  const reorder = vi.spyOn(api.policies, 'reorder');
+  const grip = screen.getByRole('button', { name: `Move ${c?.name}` });
+  fireEvent.pointerDown(grip, { button: 0, clientY: 150, pointerId: 1 });
+  fireEvent.pointerMove(grip, { clientY: 0, pointerId: 1 });
+  fireEvent.pointerUp(grip, { pointerId: 1 });
+  await waitFor(async () => expect((await order())[0]?.id).toBe(c?.id));
+  expect(reorder).toHaveBeenCalledTimes(1);
+  expect(reorder).toHaveBeenCalledWith([c?.id, a?.id, b?.id]);
+});
+
+test('a refused reorder puts the list back and says so', async () => {
+  const user = await renderPage(<PoliciesPage />);
+  await table();
+  const [a] = await order();
+  vi.spyOn(api.policies, 'reorder').mockRejectedValue(new Error('The router said no.'));
+  const firstRow = (await table()).getAllByRole('row')[1]?.textContent;
+  screen.getByRole('button', { name: `Move ${a?.name}` }).focus();
+  await user.keyboard(' {ArrowDown} ');
+  await expectToast('Couldn’t reorder: The router said no.');
+  expect((await table()).getAllByRole('row')[1]?.textContent).toBe(firstRow);
+  expect((await order())[0]?.id).toBe(a?.id);
 });
 
 test('the bulk bar turns policies off together and deletes them after a confirm', async () => {

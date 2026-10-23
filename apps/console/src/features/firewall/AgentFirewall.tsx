@@ -1,15 +1,16 @@
-import { IconChevronDown, IconChevronUp, IconPlus } from '@tabler/icons-react';
+import { IconPlus } from '@tabler/icons-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AgentForwarding, AgentNetwork, AgentRule, AgentZone, ChangeOutcome, FirewallRule, ZoneChange } from '@zeeli/router-api';
 import { useState } from 'react';
 import { api } from '../../api/router.ts';
 import { errorMessage } from '../../lib/errors.ts';
-import { Button, IconButton } from '../../ui/Button.tsx';
+import { Button } from '../../ui/Button.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { ChipPicker, Row2, SelectField, Switch, SwitchRow } from '../../ui/fields.tsx';
 import { Chip, KeyValues, Note, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
+import { moved } from '../../ui/reorder.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
 import { masqueradeColumn, ruleColumns, zonePolicyColumns } from './columns.tsx';
 import { ORIGIN, TARGETS, zoneLabel } from './labels.ts';
@@ -350,8 +351,14 @@ function ForwardingSheet({
 /* ---------- rules ---------- */
 
 function RulesPanel({ rules, onOpen, act }: { rules: AgentRule[]; onOpen: (r: AgentRule) => void; act: ReturnType<typeof useAction> }) {
-  const last = rules.length - 1;
-  const move = (r: AgentRule, to: number) => act(`Moved ${r.name}`, () => api.safety.firewall.moveRule(r, to));
+  // a drop of any distance is one move; the new order shows while the router confirms it
+  const [pending, setPending] = useState<AgentRule[] | null>(null);
+  const shown = pending ? pending.map((r, index) => ({ ...r, index })) : rules;
+  async function move(r: AgentRule, from: number, to: number) {
+    setPending(moved(rules, from, to));
+    await act(`Moved ${r.name}`, () => api.safety.firewall.moveRule(r, to));
+    setPending(null);
+  }
   return (
     <Panel
       className="section"
@@ -360,28 +367,13 @@ function RulesPanel({ rules, onOpen, act }: { rules: AgentRule[]; onOpen: (r: Ag
     >
       <DataTable
         label="Traffic rules"
-        rows={rules}
+        rows={shown}
         rowKey={(r) => r.id}
         onRowClick={onOpen}
+        reorder={{ onMove: move, label: (r) => r.name, canMove: (r) => r.editable, disabled: pending !== null }}
         rowClass={(r) => (r.enabled ? undefined : 'off')}
         columns={[
-          {
-            key: 'order',
-            header: 'Order',
-            cell: (r) => (
-              // biome-ignore lint/a11y/noStaticElementInteractions: keeps the row from opening when a button is used
-              // biome-ignore lint/a11y/useKeyWithClickEvents: the buttons inside handle keys
-              <span className="order-btns" onClick={(e) => e.stopPropagation()}>
-                <span className="num muted">{r.index + 1}</span>
-                <IconButton label={`Move ${r.name} up`} disabled={!r.editable || r.index === 0} onClick={() => move(r, r.index - 1)}>
-                  <IconChevronUp size={16} />
-                </IconButton>
-                <IconButton label={`Move ${r.name} down`} disabled={!r.editable || r.index === last} onClick={() => move(r, r.index + 1)}>
-                  <IconChevronDown size={16} />
-                </IconButton>
-              </span>
-            ),
-          },
+          { key: 'order', header: '#', size: 'xs', cell: (r) => <span className="num muted">{r.index + 1}</span> },
           ...ruleColumns<AgentRule>((r) => r.owner),
           {
             key: 'on',

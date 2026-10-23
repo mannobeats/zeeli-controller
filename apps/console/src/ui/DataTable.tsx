@@ -1,6 +1,7 @@
 import { IconX } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { type Reorder, useReorder } from './reorder.tsx';
 
 export interface Column<T> {
   key: string;
@@ -33,13 +34,16 @@ interface Props<T> {
   /** Bulk actions appear in a bar once one or more rows are checked. */
   bulk?: BulkAction<T>[];
   label: string;
+  /** A grip column to drag rows into a new order, or to move them with the keyboard. */
+  reorder?: Reorder<T>;
 }
 
 /**
  * Every list in the console. Rows are keyboard-focusable when clickable; with `bulk`,
- * each row gets a checkbox and shift-click selects a range.
+ * each row gets a checkbox and shift-click selects a range; with `reorder`, a grip.
  */
-export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, selectedKey, bulk, label }: Props<T>) {
+export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, selectedKey, bulk, label, reorder }: Props<T>) {
+  const order = useReorder(rows, reorder, rowKey);
   const [checked, setChecked] = useState<Set<string>>(() => new Set());
   const anchor = useRef<number | null>(null);
   const keys = rows.map(rowKey);
@@ -68,9 +72,14 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, sele
     <>
       {bulk && live.size > 0 ? <BulkBar count={live.size} actions={actions} picked={picked} clear={() => setChecked(new Set())} /> : null}
       <div className="table-wrap">
-        <table className="data-table" aria-label={label}>
+        <table className={`data-table ${order.tableClass}`.trim()} aria-label={label}>
           <thead>
             <tr>
+              {reorder ? (
+                <th className="c-grip">
+                  <span className="sr-only">Reorder</span>
+                </th>
+              ) : null}
               {bulk ? (
                 <th className="c-check">
                   <input
@@ -97,11 +106,13 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, sele
           <tbody>
             {rows.map((row, i) => {
               const key = rowKey(row);
-              const cls = [rowClass?.(row), selectedKey === key || live.has(key) ? 'sel' : ''].filter(Boolean).join(' ');
+              const lift = order.row(i);
+              const cls = [rowClass?.(row), selectedKey === key || live.has(key) ? 'sel' : '', lift.className].filter(Boolean).join(' ');
               return (
                 <tr
                   key={key}
                   className={cls || undefined}
+                  style={lift.style}
                   tabIndex={onRowClick ? 0 : undefined}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                   onKeyDown={
@@ -116,6 +127,18 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, sele
                       : undefined
                   }
                 >
+                  {reorder ? (
+                    <td
+                      className="c-grip"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        // picking up a row with Enter or Space mustn't open it
+                        if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+                      }}
+                    >
+                      {order.handle(row, i)}
+                    </td>
+                  ) : null}
                   {bulk ? (
                     <td
                       className="c-check"
@@ -149,6 +172,11 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, sele
           </tbody>
         </table>
       </div>
+      {reorder ? (
+        <div className="sr-only" aria-live="assertive">
+          {order.announcement}
+        </div>
+      ) : null}
     </>
   );
 }

@@ -1,16 +1,17 @@
-import { IconChevronDown, IconChevronUp, IconPlus } from '@tabler/icons-react';
+import { IconPlus } from '@tabler/icons-react';
 import type { Policy } from '@zeeli/router-api';
 import { type MouseEvent, useState } from 'react';
 import { useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { plural } from '../../lib/format.ts';
-import { Button, IconButton } from '../../ui/Button.tsx';
+import { Button } from '../../ui/Button.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
 import { Switch } from '../../ui/fields.tsx';
 import { Chip, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
+import { moved } from '../../ui/reorder.tsx';
 import { AgentMissing } from './AgentNote.tsx';
 import { confirmedDelete } from './confirmedDelete.ts';
 import type { Preset } from './draft.ts';
@@ -75,19 +76,21 @@ function usePolicyActions(policies: Policy[]) {
       () => remove.mutateAsync(list),
     );
 
-  async function move(index: number, by: -1 | 1) {
-    const ids = policies.map((p) => p.id);
-    const [moved] = ids.splice(index, 1);
-    if (moved === undefined) return;
-    ids.splice(index + by, 0, moved);
+  // the dropped order shows at once; it stays until the router has answered, and a refusal puts it back
+  const [pending, setPending] = useState<Policy[] | null>(null);
+  async function move(_: Policy, from: number, to: number) {
+    const next = moved(policies, from, to);
+    setPending(next);
     try {
-      await reorder.mutateAsync(ids);
+      await reorder.mutateAsync(next.map((p) => p.id));
     } catch (err) {
       toast(`Couldn’t reorder: ${errorMessage(err)}`);
+    } finally {
+      setPending(null);
     }
   }
 
-  return { setOn, removeAll, move, busy: enable.isPending || reorder.isPending };
+  return { shown: pending ?? policies, setOn, removeAll, move, busy: enable.isPending || reorder.isPending };
 }
 
 function PolicyList() {
@@ -114,7 +117,7 @@ interface TableProps {
 }
 
 function PolicyTable({ policies, now, warnings, names, editing, setEditing }: TableProps) {
-  const { setOn, removeAll, move, busy } = usePolicyActions(policies);
+  const { shown, setOn, removeAll, move, busy } = usePolicyActions(policies);
   const applying = policies.filter((p) => p.active).length;
   const current = editing?.policy ? (policies.find((p) => p.id === editing.policy?.id) ?? editing.policy) : null;
 
@@ -142,8 +145,9 @@ function PolicyTable({ policies, now, warnings, names, editing, setEditing }: Ta
         <Panel>
           <DataTable
             label="Policies"
-            rows={policies}
+            rows={shown}
             rowKey={(p) => p.id}
+            reorder={{ onMove: move, label: (p) => p.name, disabled: busy }}
             onRowClick={(p) => setEditing({ policy: p, preset: '' })}
             rowClass={(p) => (p.enabled ? undefined : 'off')}
             bulk={[
@@ -154,24 +158,9 @@ function PolicyTable({ policies, now, warnings, names, editing, setEditing }: Ta
             columns={[
               {
                 key: 'order',
-                header: '',
-                size: 'sm',
-                cell: (p) => {
-                  const i = policies.indexOf(p);
-                  return (
-                    // biome-ignore lint/a11y/noStaticElementInteractions: keeps the row from opening when a button is used
-                    // biome-ignore lint/a11y/useKeyWithClickEvents: the buttons handle keys
-                    <span className="order-btns" onClick={stop}>
-                      <span className="num muted">{i + 1}</span>
-                      <IconButton label={`Move ${p.name} up`} disabled={busy || i === 0} onClick={() => move(i, -1)}>
-                        <IconChevronUp size={16} />
-                      </IconButton>
-                      <IconButton label={`Move ${p.name} down`} disabled={busy || i === policies.length - 1} onClick={() => move(i, 1)}>
-                        <IconChevronDown size={16} />
-                      </IconButton>
-                    </span>
-                  );
-                },
+                header: '#',
+                size: 'xs',
+                cell: (p) => <span className="num muted">{shown.indexOf(p) + 1}</span>,
               },
               {
                 key: 'policy',

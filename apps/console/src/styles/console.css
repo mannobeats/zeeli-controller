@@ -42,6 +42,17 @@
 
 /* bulk selection */
 .data-table .c-check { width: 40px; padding-right: 0; }
+/* drag to reorder: a narrow grip column; the lifted row rises, the others step aside */
+.data-table .c-grip { width: 36px; padding-right: 0; }
+.grip { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-4); cursor: grab; touch-action: none; transition: background-color var(--t-fast), color var(--t-fast); }
+.grip:hover:not(:disabled), .grip[aria-pressed="true"] { background: var(--hover); color: var(--ink); }
+.grip:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.grip:disabled { cursor: default; opacity: .5; }
+.data-table.reordering { user-select: none; }
+.data-table.reordering tr { transition: transform var(--t-fast) var(--ease); }
+.data-table.reordering.by-pointer tr.lifted { transition: none; }
+.data-table.reordering.by-pointer .grip, .data-table.reordering.by-pointer .grip:hover { cursor: grabbing; }
+.data-table tr.lifted { position: relative; z-index: 2; background: var(--surface); box-shadow: var(--shadow-lg); }
 .data-table .col-xs { width: 64px; } .data-table .col-sm { width: 96px; } .data-table .col-md { width: 160px; } .data-table .col-lg { width: 240px; }
 /* the selection bar floats over the bottom edge, in the inverted ink the toast uses */
 .bulk-bar { position: fixed; left: calc(50% + var(--rail-w) / 2); bottom: 24px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 2px; height: 44px; padding: 0 6px 0 16px; border-radius: var(--radius-lg); background: var(--strong); color: var(--on-strong); box-shadow: var(--shadow-lg); font-size: var(--t-13); white-space: nowrap; animation: bulk-in var(--t-base) var(--ease); }
@@ -94,6 +105,14 @@ body:has(.bulk-bar) .toast { bottom: 80px; }
   .data-table tr:has(td.c-check) { grid-template-columns: 28px 1fr auto; }
   .data-table tr:has(td.c-check) td.ph-title, .data-table tr:has(td.c-check) td.ph-sub { grid-column: 2; }
   .data-table tr:has(td.c-check) td.ph-end { grid-column: 3; }
+  .data-table td.c-grip { grid-column: 1; grid-row: 1 / span 2; display: flex; align-items: center; }
+  .data-table tr:has(td.c-grip) { grid-template-columns: 28px 1fr auto; }
+  .data-table tr:has(td.c-grip) td.ph-title, .data-table tr:has(td.c-grip) td.ph-sub { grid-column: 2; }
+  .data-table tr:has(td.c-grip) td.ph-end { grid-column: 3; }
+  .data-table tr:has(td.c-grip):has(td.c-check) { grid-template-columns: 28px 28px 1fr auto; }
+  .data-table tr:has(td.c-grip):has(td.c-check) td.c-check { grid-column: 2; }
+  .data-table tr:has(td.c-grip):has(td.c-check) td.ph-title, .data-table tr:has(td.c-grip):has(td.c-check) td.ph-sub { grid-column: 3; }
+  .data-table tr:has(td.c-grip):has(td.c-check) td.ph-end { grid-column: 4; }
   .search-trigger span, .search-trigger kbd { display: none; }
   .search-trigger { padding: 0 10px; height: var(--h-lg); }
 }
