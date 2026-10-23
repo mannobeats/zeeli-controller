@@ -47,7 +47,6 @@ rpcd/zeeli-wifi.uc       →  lib/zeeli/wifi.uc  →  UCI, services, files
 ## Snapshots and confirm-or-roll-back
 
 Two helpers any area can use before a write that could cut the console off or that a person may want to undo.
-
 - `zeeli.snapshots` copies `/etc/config` (or just the files named) to `/overlay/zeeli/snapshots`, keeps the newest 10, and can list, diff and restore them. `create(reason, only?)` is the call to make before a risky write. The folder is on flash, so snapshots survive a reboot, but outside `/etc`, so they appear in neither a snapshot nor a `sysupgrade -b` backup.
 - `zeeli.rollback` wraps a write in a countdown. Call `begin(area, ['firewall'], 'changing a firewall rule')` after checking the request and before writing, write and reload, then return `{ ...result, token, seconds }`. Give your rpcd object a `confirm` method that calls `rollback.confirm(token)`; the console's `confirmChange(transport, area, armed)` calls it within the window. If no confirm arrives, `bin/zeeli-rollback-timer` (started by `begin`) restores the snapshot of those files and reloads their service. Only one change waits at a time.
 - A restore reloads what can be reloaded (`network`, `dhcp`, `firewall`, `system`, `dropbear`; `wireless` through the network reload) and reports `rebootNeeded` for GL's own settings, which are only read at startup.

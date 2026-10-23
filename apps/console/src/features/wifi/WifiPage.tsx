@@ -2,7 +2,7 @@ import { IconPlus } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { type Radio, SECURITY, type WifiNetwork, type WifiRole } from '@zeeli/router-api';
 import { useState } from 'react';
-import { useClients, useWrite } from '../../api/queries.ts';
+import { useAgent, useClients, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { bandCategory, bandLink, type Category } from '../../lib/devices.ts';
 import { errorMessage } from '../../lib/errors.ts';
@@ -15,7 +15,7 @@ import { SelectField, Switch, SwitchRow, TextField } from '../../ui/fields.tsx';
 import { Chip, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
-import { OwnNetworks, useAgent } from './OwnNetworks.tsx';
+import { OwnNetworks } from './OwnNetworks.tsx';
 
 const ROLES: [WifiRole, string, string][] = [
   ['main', 'Your networks', ''],
@@ -31,7 +31,7 @@ export default function WifiPage() {
   const { toast, confirm } = useFeedback();
   const [editing, setEditing] = useState<WifiNetwork | null>(null);
   const [adding, setAdding] = useState(false);
-  const agent = useAgent();
+  const agent = useAgent().data;
   const toggle = useWrite(
     ({ list, on }: { list: WifiNetwork[]; on: boolean }) => Promise.all(list.map((n) => api.wifi.setEnabled(n, on))),
     [['wifi'], ['status']],
