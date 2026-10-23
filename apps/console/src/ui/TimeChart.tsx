@@ -120,9 +120,12 @@ export function TimeChart({ label, start, step, series, format, min = 0, max, he
     .join(', ');
   return (
     <figure className="chart" aria-label={`${label}: ${summary}`}>
-      <div className="chart-key-row">
-        <Key series={series} />
-      </div>
+      {/* one line is named by the heading above the chart */}
+      {series.length > 1 ? (
+        <div className="chart-key-row">
+          <Key series={series} />
+        </div>
+      ) : null}
       <div className="chart-y" aria-hidden>
         <span>{format(ceiling)}</span>
         <span>{format((ceiling + min) / 2)}</span>

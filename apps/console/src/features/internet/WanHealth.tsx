@@ -102,6 +102,9 @@ function HealthCharts({ series, bands }: { series: HealthSeries; bands: ChartBan
   const lossTop = Math.max(5, niceMax(summary(series, 'internetLoss').max ?? 0));
   return (
     <>
+      <div className="chart-title">
+        <b>Latency</b>
+      </div>
       <TimeChart
         label="Latency"
         start={series.start}
@@ -110,6 +113,10 @@ function HealthCharts({ series, bands }: { series: HealthSeries; bands: ChartBan
         bands={bands}
         series={[line('internet', 'Internet', 'brand', column('internetMs')), line('gateway', 'Gateway', 'ok', column('gatewayMs'), true)]}
       />
+      <div className="chart-title">
+        <b>Packets lost</b>
+        <span>Share of pings with no answer</span>
+      </div>
       <TimeChart
         label="Packets lost"
         start={series.start}
@@ -118,10 +125,7 @@ function HealthCharts({ series, bands }: { series: HealthSeries; bands: ChartBan
         max={lossTop}
         height={80}
         bands={bands}
-        series={[
-          { key: 'internet', label: 'Internet', tone: 'warn', shape: 'bars', values: column('internetLoss') },
-          line('gateway', 'Gateway', 'bad', column('gatewayLoss'), true),
-        ]}
+        series={[{ key: 'internet', label: 'Internet', tone: 'warn', shape: 'bars', values: column('internetLoss') }]}
       />
     </>
   );

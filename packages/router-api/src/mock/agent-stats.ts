@@ -153,7 +153,8 @@ function rateAt(s: MockState, m: Memory, mac: string, t: number): number | null 
   const h = hourOf(t);
   if (!person.windows.some(([a, b]) => h >= a && h < b)) return null;
   const busy = shape(h, person.peak) * (weekend(t) ? 1.35 : 1);
-  return Math.max(60, client.rx * busy * (0.6 + 0.8 * noise(mac, Math.floor(t / 300))));
+  // the seeded rates are peaks of a busy minute; an average day moves a fraction of that
+  return Math.max(60, client.rx * 0.12 * busy * (0.6 + 0.8 * noise(mac, Math.floor(t / 300))));
 }
 
 const inOutage = (m: Memory, t: number) => m.outages.some((o) => t >= o.start && t < o.start + o.seconds);
