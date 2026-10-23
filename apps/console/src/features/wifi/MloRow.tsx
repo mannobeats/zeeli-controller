@@ -18,6 +18,13 @@ function whyNot(overview: WifiOverview): string | null {
   return null;
 }
 
+/** The bands a new multi-link network would take: the pair most devices handle best, else any two. Null when it can’t be made. */
+export function mloPick(overview: WifiOverview): OwnBand[] | null {
+  if (whyNot(overview)) return null;
+  const free = mloBandsFree(overview);
+  return free.includes('5g') && free.includes('6g') ? ['5g', '6g'] : free.slice(0, 2);
+}
+
 interface Props {
   form: OwnForm;
   overview: WifiOverview;
@@ -29,10 +36,7 @@ export function MloRow({ form, overview, onChange }: Props) {
   const blocked = whyNot(overview);
   function toggle(on: boolean) {
     if (!on) return onChange({ mlo: false });
-    const free = mloBandsFree(overview);
-    // the pair most devices handle best, else whatever two the router can do
-    const bands = free.includes('5g') && free.includes('6g') ? (['5g', '6g'] as OwnBand[]) : free.slice(0, 2);
-    onChange({ mlo: true, bands, security: 'sae' });
+    onChange({ mlo: true, bands: mloPick(overview) ?? [], security: 'sae' });
   }
   const hint =
     blocked ??

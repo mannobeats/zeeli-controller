@@ -1,9 +1,10 @@
 import { IconPlus } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { type Radio, SECURITY, type WifiNetwork, type WifiRole } from '@zeeli/router-api';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAgent, useClients, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
+import { hashParams } from '../../app/useHashRoute.ts';
 import { bandCategory, bandLink, type Category } from '../../lib/devices.ts';
 import { errorMessage } from '../../lib/errors.ts';
 import { BAND_LABEL } from '../../lib/format.ts';
@@ -15,7 +16,8 @@ import { SelectField, Switch, SwitchRow, TextField } from '../../ui/fields.tsx';
 import { Chip, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
-import { OwnNetworks } from './OwnNetworks.tsx';
+import { OwnNetworks, type Prefill } from './OwnNetworks.tsx';
+import { ShareButton } from './ShareWifi.tsx';
 
 const ROLES: [WifiRole, string, string][] = [
   ['main', 'Your networks', ''],
@@ -25,12 +27,24 @@ const ROLES: [WifiRole, string, string][] = [
 const bandLabel = (b: string) => BAND_LABEL[b] ?? b;
 const categoryOfNet = (n: WifiNetwork): Category => (n.kind === 'mlo' ? 'mlo' : bandCategory(n.bands[0] ?? ''));
 
+/** `#wifi?create=<network id>&ssid=<name>` opens the add sheet on that network with the name filled in. */
+function linkedPrefill(): Prefill | null {
+  const params = hashParams();
+  const network = params.get('create');
+  if (network === null) return null;
+  return { network, ssid: params.get('ssid') ?? '' };
+}
+
 export default function WifiPage() {
   const query = useQuery({ queryKey: ['wifi'], queryFn: api.wifi.list });
   const clients = useClients().data ?? [];
   const { toast, confirm } = useFeedback();
   const [editing, setEditing] = useState<WifiNetwork | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<Prefill | null>(linkedPrefill);
+  // the link has done its job: a reload shouldn't open the sheet again
+  useEffect(() => {
+    if (hashParams().has('create')) history.replaceState(null, '', `#${location.hash.slice(1).split('?')[0]}`);
+  }, []);
   const agent = useAgent().data;
   const toggle = useWrite(
     ({ list, on }: { list: WifiNetwork[]; on: boolean }) => Promise.all(list.map((n) => api.wifi.setEnabled(n, on))),
@@ -74,7 +88,7 @@ export default function WifiPage() {
             title="WiFi"
             actions={
               agent ? (
-                <Button variant="strong" icon={<IconPlus size={16} />} onClick={() => setAdding(true)}>
+                <Button variant="strong" icon={<IconPlus size={16} />} onClick={() => setAdding({})}>
                   Add network
                 </Button>
               ) : undefined
@@ -152,7 +166,7 @@ export default function WifiPage() {
               </Panel>
             );
           })}
-          <OwnNetworks adding={adding} onAddClosed={() => setAdding(false)} />
+          <OwnNetworks adding={adding} onAddClosed={() => setAdding(null)} />
           {editing ? <WifiSheet key={editing.name} network={editing} onClose={() => setEditing(null)} /> : null}
         </>
       )}
@@ -234,6 +248,11 @@ function WifiSheet({ network: n, onClose }: { network: WifiNetwork; onClose: () 
         <TextField label="Password" type="password" value={key} onChange={setKey} hint="8 to 63 characters" />
       )}
       <SwitchRow label="Hide network name" checked={hidden} onChange={setHidden} />
+      {encryption === 'none' ? null : (
+        <div>
+          <ShareButton ssid={ssid} hidden={hidden} getPassword={() => key} />
+        </div>
+      )}
       {radio ? <RadioFields radio={radio} edits={edits} /> : null}
     </Sheet>
   );

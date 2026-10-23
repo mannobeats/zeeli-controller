@@ -7,6 +7,7 @@ import {
   type Weekday,
   type WifiSchedule,
 } from '@zeeli/router-api';
+import { WORDS } from './words.ts';
 
 /** Day numbers as the week picker uses them: the firmware's 0 = Sunday. */
 const DAY_NAMES: Weekday[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -125,11 +126,11 @@ export const toPatch = (f: OwnForm) => {
   return password ? { ...rest, password } : rest;
 };
 
-const ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
-
-/** Sixteen letters and digits that are hard to misread, in groups of four: `kd8s-mq2x-7tqa-b3nz`. */
+/** Four random words and three digits, typeable and readable aloud: `maple-river-cobalt-tiger-482`. */
 export function generatePassword(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  const chars = Array.from(bytes, (b) => ALPHABET[b % ALPHABET.length]);
-  return [0, 4, 8, 12].map((i) => chars.slice(i, i + 4).join('')).join('-');
+  const words = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => WORDS[b] ?? '');
+  const digits = String(crypto.getRandomValues(new Uint32Array(1))[0] ?? 0)
+    .slice(-3)
+    .padStart(3, '0');
+  return [...words, digits].join('-');
 }

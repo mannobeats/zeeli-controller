@@ -343,3 +343,21 @@ body:has(.bulk-bar) .toast { bottom: 80px; }
 .page-note .link { font-size: inherit; }
 .tl-link { border: 0; background: none; padding: 0; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
 .tl-link:hover { color: var(--brand); }
+/* ---------- WiFi presets and sharing ---------- */
+.preset-picks { display: flex; flex-wrap: wrap; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.preset-picks legend { padding: 0; margin-bottom: 6px; font-size: var(--t-12); color: var(--ink-3); font-weight: 500; }
+.preset-picks .btn[aria-pressed="true"] { border-color: var(--brand); color: var(--brand); }
+.preset-picks .hint { flex-basis: 100%; }
+.share-card { display: grid; gap: 12px; justify-items: center; text-align: center; }
+.share-qr { width: min(300px, 100%); height: auto; border: 1px solid var(--line); border-radius: var(--radius-lg); }
+.share-text { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; text-align: left; margin: 0; }
+.share-text dt { color: var(--ink-3); font-size: var(--t-12); align-self: center; }
+.share-text dd { margin: 0; overflow-wrap: anywhere; }
+@media print {
+  body * { visibility: hidden; }
+  .share-card, .share-card * { visibility: visible; }
+  .drawer { position: absolute; inset: 0 auto auto 0; transform: none; width: 100%; box-shadow: none; }
+  .share-card { position: absolute; left: 0; top: 0; width: 100%; font-size: 18px; color: #000; }
+  .share-qr { width: 9cm; border: 0; }
+  .share-card .link { display: none; }
+}
