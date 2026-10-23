@@ -331,7 +331,7 @@ function BackupFilePanel({ onRestart }: { onRestart: (why: string) => void }) {
     }
     const ok = await confirm({
       title: 'Restore this backup file?',
-      body: `${file.name} holds ${plural(info.files, 'file')}, ${info.configs} of them router settings. Everything in it replaces what’s on the router now. The router saves a snapshot of the current settings first, and it must restart afterwards: devices are offline for about two minutes.`,
+      body: `${file.name} holds ${plural(info.files, 'file')}, ${info.configs} of them router settings.${info.leftOut ? ` ${plural(info.leftOut, 'file')} outside /etc are left out.` : ''} Everything in it replaces what’s on the router now. The router saves a snapshot of the current settings first, and it must restart afterwards: devices are offline for about two minutes.`,
       confirm: 'Restore',
       danger: true,
     });

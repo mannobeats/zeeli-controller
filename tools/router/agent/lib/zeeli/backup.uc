@@ -139,10 +139,12 @@ function listing(path) {
 		// the target after “ -> ” and takes the type letter from the entry’s own mode bits, which an
 		// archive can lie about, so restore() looks at what was really unpacked as well.
 		if ((kind != '-' && kind != 'd') || index(name, ' -> ') >= 0 || index(name, ' link to ') >= 0) return fail('That archive contains links or special files, so it wasn’t restored.');
-		if (!match(name, /^etc\//) || index(split(name, '/'), '..') >= 0 || match(name, /[[:cntrl:]]/))
-			return fail(`That archive holds files outside /etc (${name}), so it wasn’t restored.`);
+		if (match(name, /^\//) || index(split(name, '/'), '..') >= 0 || match(name, /[[:cntrl:]]/))
+			return fail(`That archive has a file that points outside its own folders (${name}), so it wasn’t restored.`);
 		unpacked += int(size);
-		push(files, { name, kind });
+		// the firmware's own backups also carry a few files outside /etc (GL keeps /lib/wifi
+		// settings); those are left out, only /etc is restored
+		push(files, { name, kind, outside: !match(name, /^etc\//) });
 	}
 	if (length(files) > MAX_FILES || unpacked > MAX_UNPACKED) return fail('That archive is far bigger than a router backup, so it wasn’t restored.');
 	if (!length(filter(files, (f) => match(f.name, /^etc\/config\/./) && f.kind == '-')))
@@ -168,7 +170,14 @@ function inspect() {
 	const l = listing(upload());
 	if (l.error) return l;
 	const configs = filter(l.files, (f) => match(f.name, /^etc\/config\/[^\/]+$/) && f.kind == '-');
-	return { token: digest(upload()), bytes: size, files: length(filter(l.files, (f) => f.kind == '-')), configs: length(configs) };
+	const plain = filter(l.files, (f) => f.kind == '-');
+	return {
+		token: digest(upload()),
+		bytes: size,
+		files: length(filter(plain, (f) => !f.outside)),
+		configs: length(configs),
+		leftOut: length(filter(plain, (f) => f.outside)),
+	};
 }
 
 /**
@@ -181,7 +190,11 @@ function unpack(file, stage) {
 	run(['mkdir', '-p', stage]);
 	const r = run(['tar', '-xzf', file, '-C', stage]);
 	const odd = r.code == 0 ? trim(run(['find', stage, '!', '-type', 'f', '!', '-type', 'd']).stdout) : '';
-	if (r.code == 0 && odd == '' && join(',', lsdir(stage) ?? []) == 'etc') return null;
+	if (r.code == 0 && odd == '' && index(lsdir(stage) ?? [], 'etc') >= 0) {
+		// only etc/ is restored; the rest of an unpacked firmware backup is plain files, dropped here
+		for (let n in lsdir(stage)) if (n != 'etc') run(['rm', '-rf', `${stage}/${n}`]);
+		return null;
+	}
 	run(['rm', '-rf', stage]);
 	return r.code != 0 ? 'The router couldn’t unpack that archive, so nothing was restored.' : 'That archive contains links or files outside /etc, so nothing was restored.';
 }

@@ -44,6 +44,8 @@ export interface BackupInspection {
   bytes: number;
   files: number;
   configs: number;
+  /** Files outside /etc, which a firmware backup also carries and a restore leaves out. */
+  leftOut?: number;
 }
 
 /* ---------- firewall through the agent ---------- */

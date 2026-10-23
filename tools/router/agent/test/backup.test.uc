@@ -97,10 +97,8 @@ test('an archive for a different file than the one shown is refused', () => {
 
 test('archives that could write outside etc, or through links, are never unpacked', () => {
 	for (let t in [
-		[[...good, { name: 'root/.ssh/authorized_keys', body: 'k\n' }], 'That archive holds files outside /etc (root/.ssh/authorized_keys), so it wasn’t restored.'],
 		[[...good, { name: 'etc/../../tmp/x', body: 'k\n' }], 'That archive has entries the router can’t read, so it wasn’t restored.'],
 		[[...good, { name: '/etc/config/x', body: 'k\n' }], 'That archive has entries the router can’t read, so it wasn’t restored.'],
-		[[...good, { name: './etc/config/x', body: 'k\n' }], 'That archive holds files outside /etc (./etc/config/x), so it wasn’t restored.'],
 		[[...good, { name: 'etc/passwd-link', type: '2', link: '/etc/passwd' }], 'That archive contains links or special files, so it wasn’t restored.'],
 		[[...good, { name: 'etc/hard', type: '1', link: 'etc/config/firewall' }], 'That archive contains links or special files, so it wasn’t restored.'],
 		[[{ name: 'etc/', type: '5' }, { name: 'etc/hosts', body: 'x\n' }], 'That archive has no router settings in it.'],
@@ -110,6 +108,15 @@ test('archives that could write outside etc, or through links, are never unpacke
 		ok(!stat(`${paths.state}/root/etc/hosts`), 'nothing was unpacked');
 	}
 	ok(!stat(`${paths.state}/root/tmp/x`) && !stat(`${paths.state}/root/root`), 'nothing escaped');
+});
+
+test('files outside etc, like the firmware’s own /lib/wifi ones, are left out and never restored', () => {
+	upload([...good, { name: 'lib/wifi/wifi_nss_olcfg', body: '1\n' }, { name: 'root/.ssh/authorized_keys', body: 'k\n' }]);
+	const shown = call('inspect');
+	eq(shown.leftOut, 2);
+	ok(!call('restore_file', { token: shown.token }).error, 'the archive restores');
+	ok(stat(`${paths.state}/root/etc/config/firewall`), 'etc is restored');
+	ok(!stat(`${paths.state}/root/root`) && !stat(`${paths.state}/root/lib`), 'nothing outside etc lands');
 });
 
 test('what is unpacked is checked again, whatever the listing said', () => {

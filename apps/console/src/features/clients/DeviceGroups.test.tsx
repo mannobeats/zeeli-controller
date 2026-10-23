@@ -26,7 +26,11 @@ test('a device shows its groups and the policies that reach it', async () => {
   const { group } = await openDevice('Leo-iPad');
   expect(group.getByRole('button', { name: 'Remove from Kids' })).toBeTruthy();
   const sentences = group.getAllByRole('listitem').map((li) => li.textContent);
-  expect(sentences).toEqual(['Block Kids from the internet every day 22:00–07:00', 'Block Kids from tiktok.com and tiktokv.comActive']);
+  // Bedtime shows "Active" only between 22:00 and 07:00, so the test can't depend on the clock
+  expect(sentences).toEqual([
+    expect.stringMatching(/^Block Kids from the internet every day 22:00–07:00(Active)?$/),
+    'Block Kids from tiktok.com and tiktokv.comActive',
+  ]);
 });
 
 test('a device is added to a group and taken out again', async () => {
