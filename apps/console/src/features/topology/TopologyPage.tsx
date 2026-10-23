@@ -192,7 +192,9 @@ const DeviceNode = memo(function DeviceNode({ data }: NodeProps<Node<DeviceData,
         <b>{c.name}</b>
         <span className="conn">
           <Swatch category={data.category} />
-          {c.online ? `${link} · ${rateText(c.rx + c.tx)}` : 'Offline'}
+          {/* the link label gives way first; the live rate always stays whole */}
+          <span className="link">{c.online ? link : 'Offline'}</span>
+          {c.online ? <span className="rate">{rateText(c.rx + c.tx)}</span> : null}
         </span>
       </div>
       {/* traffic as a bar along the card's foot, instead of a wire across the map */}
