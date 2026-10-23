@@ -10,8 +10,8 @@ import { bandLink } from '../../lib/devices.ts';
 export function clientsOn(n: OwnWifi, clients: Client[], networks: Network[]): number {
   const net = networks.find((x) => x.id === n.network);
   if (!net) return 0;
-  const bands = n.bands.map(bandLink);
+  const bands = new Set(n.bands.map(bandLink));
   return clients.filter(
-    (c) => c.online && c.link.medium === 'wifi' && bands.includes(c.link.band ?? undefined) && inSubnet(c.ip, net.ip, net.netmask),
+    (c) => c.online && c.link.medium === 'wifi' && bands.has(c.link.band ?? undefined) && inSubnet(c.ip, net.ip, net.netmask),
   ).length;
 }
