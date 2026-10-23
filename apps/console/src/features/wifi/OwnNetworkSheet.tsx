@@ -21,10 +21,15 @@ import { Sheet } from '../../ui/Sheet.tsx';
 import { blankForm, formOf, formProblem, generatePassword, type OwnForm, toInput, toPatch } from './own-form.ts';
 
 const SECURITY_CHOICES: [OwnSecurity, string][] = [
-  ['sae-mixed', `${SECURITY['sae-mixed']}: works with older devices too`],
-  ['sae', `${SECURITY.sae}: newest and strongest`],
-  ['psk2', `${SECURITY.psk2}: for old devices`],
+  ['sae-mixed', SECURITY['sae-mixed'] ?? 'WPA2/WPA3'],
+  ['sae', SECURITY.sae ?? 'WPA3'],
+  ['psk2', SECURITY.psk2 ?? 'WPA2'],
 ];
+const SECURITY_HINT: Record<OwnSecurity, string> = {
+  'sae-mixed': 'WPA2/WPA3 works with older devices too.',
+  sae: 'WPA3 is the strongest. Needed for 6 GHz.',
+  psk2: 'WPA2 is for old devices that can’t use WPA3.',
+};
 
 type Setter = <K extends keyof OwnForm>(key: K) => (value: OwnForm[K]) => void;
 
@@ -237,7 +242,7 @@ function JoinFields({
         value={only6 ? 'sae' : form.security}
         options={only6 ? SECURITY_CHOICES.filter(([v]) => v === 'sae') : SECURITY_CHOICES}
         onChange={set('security')}
-        hint={only6 ? '6 GHz needs WPA3.' : undefined}
+        hint={only6 ? '6 GHz needs WPA3.' : SECURITY_HINT[form.security]}
       />
     </Row2>
   );

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { isOwn, type OwnWifi } from '@zeeli/router-api';
 import { useState } from 'react';
-import { useAgent, useWrite } from '../../api/queries.ts';
+import { useAgent, useClients, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { navigate } from '../../app/useHashRoute.ts';
 import { errorMessage } from '../../lib/errors.ts';
@@ -11,8 +11,8 @@ import { useFeedback } from '../../ui/feedback.tsx';
 import { Empty, Panel } from '../../ui/Layout.tsx';
 import { OwnNetworkSheet } from './OwnNetworkSheet.tsx';
 import { OwnTable } from './OwnTable.tsx';
+import { clientsOn } from './own-clients.ts';
 
-/** The agent's version: undefined while asking, null on a router that doesn't have it. */
 const nameOf = (list: OwnWifi[]) => (list.length === 1 ? `“${list[0]?.ssid}”` : plural(list.length, 'network'));
 
 /** Switch, delete and apply, each followed by one WiFi reload for the whole batch. */
@@ -83,6 +83,7 @@ export function OwnNetworks({ adding, onAddClosed }: { adding: boolean; onAddClo
   const agent = useAgent().data;
   const overview = useQuery({ queryKey: ['wifi-networks'], queryFn: api.wifiNetworks.overview, enabled: Boolean(agent) });
   const networks = useQuery({ queryKey: ['networks'], queryFn: api.networks.list, staleTime: 30_000 });
+  const clients = useClients().data ?? [];
   const [editing, setEditing] = useState<OwnWifi | null>(null);
   const actions = useOwnActions();
 
@@ -107,6 +108,7 @@ export function OwnNetworks({ adding, onAddClosed }: { adding: boolean; onAddClo
           <OwnTable
             rows={mine}
             labels={labels}
+            clientsOn={(n) => clientsOn(n, clients, networks.data ?? [])}
             busy={actions.busy}
             onOpen={setEditing}
             onSwitch={actions.setOn}

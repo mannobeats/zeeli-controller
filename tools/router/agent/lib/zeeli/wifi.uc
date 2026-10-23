@@ -609,15 +609,26 @@ function setEnabled(id, enabled) {
 	return finish(c, {});
 }
 
+/**
+ * How long a reload may hold rpcd. `wifi reload` is `ubus call network reload`: it sources the
+ * driver scripts (0.24 s on the BE9300, measured with `wifi status`, which does the same) and asks
+ * netifd, which brings the changed vaps up after the call has returned. So it returns in about a
+ * second; this is a ceiling for a busy router, not an expectation. Past it the call is killed, the
+ * changes stay saved and `pending` stays true.
+ */
+const RELOAD_SECONDS = 25;
+
 /** Reload WiFi so committed changes reach the radios. */
 function apply() {
+	const argv = ['timeout', `${RELOAD_SECONDS}`, '/sbin/wifi', 'reload'];
 	if (paths.confdir) {
 		// a test sandbox: note the command instead of running it
 		mkdir(paths.state);
 		const log = `${paths.state}/wifi-apply.log`;
-		writefile(log, `${readfile(log) ?? ''}/sbin/wifi reload\n`);
+		writefile(log, `${readfile(log) ?? ''}${join(' ', argv)}\n`);
 	} else {
-		const r = run(['/sbin/wifi', 'reload']);
+		const r = run(argv);
+		if (r.code == 124) return fail('WiFi is still reloading. Your changes are saved; apply again in a minute if devices haven’t reconnected.');
 		if (r.code != 0) return fail(trim(r.stdout) || 'The router couldn’t reload WiFi.');
 	}
 	markPending(false);

@@ -117,7 +117,7 @@ Left out on purpose: `multi_ap` and `wps_*` (mesh and WPS), `mld` (MLO networks 
 
 ### Writes and `apply`
 
-`create`, `update`, `delete`, `set_enabled` and the schedule methods commit to `/etc/config/wireless` and `/etc/config/zeeli` right away and set `pending`. They do not touch the radios. `apply` does, with `/sbin/wifi reload`, which on this firmware is `ubus call network reload`. It is the command GL's own `wifi.set_config` ends with. The console writes, then applies once, so a bulk change is one reload. If an apply fails, `list` still reports `pending: true` and the console offers "Apply now".
+`create`, `update`, `delete`, `set_enabled` and the schedule methods commit to `/etc/config/wireless` and `/etc/config/zeeli` right away and set `pending`. They do not touch the radios. `apply` does, with `/sbin/wifi reload`, which on this firmware is `ubus call network reload`. It is the command GL's own `wifi.set_config` ends with. It blocks rpcd only briefly: the command sources the driver scripts (0.24 s, measured with `wifi status`, which does the same) and hands the work to netifd, which brings the changed vaps up after the call has returned. The agent runs it as `timeout 25 /sbin/wifi reload` so a stuck router can't hold rpcd for long. If the timeout hits, `apply` fails with a message, the changes stay saved, and `pending` stays true, so the console keeps offering "Apply now". The console writes, then applies once, so a bulk change is one reload. If an apply fails, `list` still reports `pending: true` and the console offers "Apply now".
 
 What a device experiences, from `qca-wifi-configurator` (the Lua daemon behind the `qsdk-wifi` ubus object, which `network reload` wakes) and `/lib/wifi/qcawificfg80211.sh`. It compares each vap with the config it applied last (`/tmp/qcawificfg80211_<radio>_bak`) and acts per vap, not per radio:
 - **Changing a name, password, hidden, isolate or encryption** patches that vap's hostapd config and re-adds just that BSS (`wpa_cli … REMOVE` then `ADD bss_config`). Devices on that network disconnect and reconnect within a few seconds. Other networks on the radio keep running.
@@ -127,6 +127,17 @@ What a device experiences, from `qca-wifi-configurator` (the Lua daemon behind t
 
 This rests on reading the daemon's strings and the scripts. It is the first live check.
 
+### Password characters
+
+Any printable ASCII (space to `~`) is allowed, 8 to 63 characters: hostapd's own rule. Characters such as `/ & \ | ' " $` and backticks were checked against every place a key travels, and none of them can break or inject into the generated config:
+- **Stored raw, like GL's panel.** GL's `wifi` RPC validates a key with `gl.validator.wpakey` (length 8 to 63, or 64 hex; `/usr/lib/lua/gl/validator.lua:330`) and writes it to the same `key` option, unescaped. libuci quotes it on disk (`option key '...'\''...'`) and `uci export` quotes it again for the shell scripts.
+- **The generator never evaluates it.** `hostapd_set_bss_options` reads it with `config_get psk "$vif" key` and adds it with `append "$var" "wpa_passphrase=$psk"` (`/lib/wifi/hostapd.sh:285-296`). `append` (`/lib/functions.sh:35-41`) puts the value in with `\$value` inside its `eval`, so the value is data, not code. The file is then written with an unquoted heredoc whose only expansion is `$hostapd_cfg` (`hostapd.sh:2461-2466`), and expansions are not repeated on the result. The SSID goes through the same path.
+- **Checked on the router, not just read.** A key and SSID made of `$(touch ...)`, backticks, `\n` and `&|/"';#` went through the agent, `config_load`, `append` and the heredoc in a `/tmp` sandbox: they came out as literal text in the conf and nothing ran. The agent test `any printable character is a valid password...` covers the UCI half.
+- **The only other shell that sees a key** is the `case "$key" in *"|id="*)` in `qcawificfg80211.sh` (SAE password identifiers). It sits behind `[ -z "$$sae_password_count" ]`, where `$$` is the shell's PID, so it never runs. A key containing `|id=` would be harmless anyway.
+- **Newlines and control characters** are the one thing that would inject a hostapd line, and the agent refuses them in keys and names.
+
+Not checked: `qca-wifi-configurator` re-writes a vap's `wpa_passphrase=` line itself when a password changes. It does that with Lua file calls (its only `sed` commands take fixed text and the config path), but its bytecode wouldn't disassemble here, so whether it handles `%` in a key (a Lua replacement-string character) is part of live check 2.
+
 ### Schedules
 
 A schedule is `config wifi_schedule 'wifi_<id>'` in `/etc/config/zeeli` with `enabled`, `list days`, `off` and `on` (`HH:MM`, local time). A window starts at `off` on a listed day and may run past midnight.
@@ -134,6 +145,18 @@ A schedule is `config wifi_schedule 'wifi_<id>'` in `/etc/config/zeeli` with `en
 It is enforced by `init.d/zeeli-wifi-schedule`, a procd service that runs `bin/zeeli-wifi-schedule`: once a minute, on the minute, it calls `zeeli.wifi tick`, and when that switched something it calls `apply`. The first pass runs at start, so a router that reboots inside a window turns the network off again. Why a service and not cron: this firmware runs `crond -c /tmp/gl_crontabs`, a RAM spool that GL rebuilds from `crontabs.d/*` whenever its timer settings change. The usual `/etc/crontabs/root` isn't read, and a line added to the spool would vanish on the next rebuild or reboot. The service touches no crontab at all, so it can't clobber GL's.
 
 `tick` works on edges, not levels. When a network's wanted state changes it sets `disabled '1'` and `sched_off '1'` on its interfaces (off), or clears both on the ones it marked (on). It never turns on an interface that was off before the window began. A person can still flip the switch inside a window and it stays until the next edge; `set_enabled` clears `sched_off`. The last state it saw is in `$state/wifi-schedule.json` (RAM), which is why a reboot enforces the window again.
+
+Removing Zeeli must release the networks a schedule is holding off, or they stay off with nothing left to turn them on. `zeeli-update remove` does this after it has stopped `zeeli-wifi-schedule` (so the loop can't hold them again):
+
+```sh
+for s in $(uci -q show wireless | sed -n "s/^wireless\.\(zeeli_[a-z0-9_]*\)\.sched_off='1'$/\1/p"); do
+	uci -q set wireless.$s.disabled=0
+	uci -q delete wireless.$s.sched_off
+done
+uci -q commit wireless && wifi reload
+```
+
+The section names are matched by `[a-z0-9_]` only, so nothing from the config reaches the shell unquoted. The networks themselves stay in `/etc/config/wireless` (the user's WiFi, now with no agent to edit it); delete the `zeeli_*` sections in the same loop if removal should take them away too.
 
 ### GL's WiFi timer
 
@@ -182,15 +205,17 @@ These change the router, so the agent's author didn't run them. Run them in orde
    grep -E 'wpa_key_mgmt|ieee80211w|sae|no_beacon_rsnxe' /var/run/hostapd-wlan030.conf
    ```
 
+   Repeat once with a password containing `%1` and `%` (`another-%1-pass%`) and check that `grep wpa_passphrase /var/run/hostapd-wlan030.conf` shows it unchanged: the daemon's own patching is the one place a key isn't proven literal.
    Expect the same lines both times: `wpa_key_mgmt=WPA-PSK`, `ieee80211w=0`, `no_beacon_rsnxe=1`, no `sae_*`. A `SAE` appearing means the hostapd patch widened it, and the agent has to restart the vap (`wifi gl_multi_up wifi0 wlan030`) instead of relying on `network reload`.
-3. **GL's panel and RPC with our network present.** In the GL panel open WiFi: no `ZTest` row, and nothing else changed. Then:
+3. **Reload time.** `time ubus call zeeli.wifi apply` should take about a second, and `logread` should show the vap coming up some seconds later. If it takes 20 s or more, `apply` has to run detached with a status the console polls.
+4. **GL's panel and RPC with our network present.** In the GL panel open WiFi: no `ZTest` row, and nothing else changed. Then:
 
    ```sh
    curl -s -H 'glinet: 1' http://127.0.0.1/rpc -d '{"jsonrpc":"2.0","method":"call","params":["","wifi","get_config",{}],"id":1}' | jsonfilter -e '@.result.res[*].ifaces[*].name'
    ```
 
    (Use the port in `/etc/nginx/conf.d/gl.conf` if it isn't 80.) It's fine if `zeeli_…` is listed, since the console drops it. A Lua error, or a missing main network, isn't: that means `guest 'zeeli'` upsets GL, and the marker has to change.
-4. **GL's timer still hits the main network.** This is what the timer runs (it switches the real main 5 GHz network off and on, so do it when that is fine):
+5. **GL's timer still hits the main network.** This is what the timer runs (it switches the real main 5 GHz network off and on, so do it when that is fine):
 
    ```sh
    gl_timer_control_wifi turn_onoff turnoff 5G 0; uci get wireless.wifi5g.disabled; uci get wireless.zeeli_<id>_5g.disabled
@@ -198,8 +223,8 @@ These change the router, so the agent's author didn't run them. Run them in orde
    ```
 
    Expect `1` then `0`.
-5. **GL's 6 GHz address handling leaves ours alone.** Make a 6 GHz network (`"bands":["6g"],"security":"sae"`), apply, note `uci get wireless.zeeli_<id>_6g.macaddr`, save the main 6 GHz network unchanged in the GL panel, read it again. Expect the same address and no restart of our vap in `logread`. Also check a 6 GHz client sees both networks.
-6. **Options take effect.** Make one with `"options":{"fastRoaming":true,"maxClients":20,"multicastToUnicast":true,"dtim":3}`, apply, then:
+6. **GL's 6 GHz address handling leaves ours alone.** Make a 6 GHz network (`"bands":["6g"],"security":"sae"`), apply, note `uci get wireless.zeeli_<id>_6g.macaddr`, save the main 6 GHz network unchanged in the GL panel, read it again. Expect the same address and no restart of our vap in `logread`. Also check a 6 GHz client sees both networks.
+7. **Options take effect.** Make one with `"options":{"fastRoaming":true,"maxClients":20,"multicastToUnicast":true,"dtim":3}`, apply, then:
 
    ```sh
    cfg80211tool wlan130 get_maxsta; cfg80211tool wlan130 g_mcastenhance
@@ -207,7 +232,7 @@ These change the router, so the agent's author didn't run them. Run them in orde
    ```
 
    Expect `20`, `2`, and `FT-PSK`/`FT-SAE` in `wpa_key_mgmt` with the other FT lines. If `get_maxsta` stays at 271, `maxsta` is read only at radio start.
-7. **Schedules and reboot.** Set a window around now, in the router's local time (`date`):
+8. **Schedules and reboot.** Set a window around now, in the router's local time (`date`):
 
    ```sh
    ubus call zeeli.wifi set_schedule '{"id":"<id>","days":["mon","tue","wed","thu","fri","sat","sun"],"off":"HH:MM","on":"HH:MM"}'
@@ -215,7 +240,7 @@ These change the router, so the agent's author didn't run them. Run them in orde
    ```
 
    Within a minute: `uci get wireless.zeeli_<id>_5g.disabled` is `1` with `sched_off` set, and `logread` shows the vap going down. Inside the window, `reboot`: after boot the network is off again (`ls /var/lib/zeeli` shows `wifi-schedule.json`). After `on`, it comes back by itself. A network you switched off yourself (`set_enabled`) must still be off after the window.
-8. **Deleting a network under it.** Delete the network a Zeeli network joins in the GL panel. Expect `uci get wireless.zeeli_<id>_5g.network` to still name it, and the vap to come up unbridged or not at all. Decide whether the Networks page should refuse, or take the WiFi networks down with it.
+9. **Deleting a network under it.** Delete the network a Zeeli network joins in the GL panel. Expect `uci get wireless.zeeli_<id>_5g.network` to still name it, and the vap to come up unbridged or not at all. Decide whether the Networks page should refuse, or take the WiFi networks down with it.
 ## History: `zeeli.stats` and the collector
 
 `init.d/zeeli-collector` runs `bin/zeeli-collector run` under procd (respawned, low priority). ucode here has no uloop, so the loop is plain: sample, `sleep()` until the next minute, repeat. A sample takes about 0.1 s of wall time, mostly pings, and the process holds 2.4 MB. `lib/zeeli/collector.uc` has the logic (`tick` takes a snapshot as an argument, so tests feed it made-up ones), `lib/zeeli/sources.uc` reads the router, `lib/zeeli/ring.uc` stores, `lib/zeeli/stats.uc` answers `rpcd/zeeli-stats.uc`.
