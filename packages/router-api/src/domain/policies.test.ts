@@ -33,9 +33,10 @@ describe('the demo', () => {
     expect(await api.clients.list()).toEqual(expect.arrayContaining([expect.objectContaining({ mac: kids?.members[0] })]));
   });
 
-  test('has a bedtime, a site block and a paused TV', async () => {
+  test('has a bedtime, a site block, a paused TV and the TV routed through a VPN', async () => {
     const { policies } = await api.policies.list();
-    expect(policies.map((p) => p.name)).toEqual(['Bedtime', 'No TikTok', 'Living-Room-TV paused']);
+    expect(policies.map((p) => p.name)).toEqual(['Bedtime', 'No TikTok', 'Living-Room-TV paused', 'TV via UK VPN']);
+    expect(policies[3]).toMatchObject({ action: { kind: 'route', target: 'vpn:10101', fallback: 'block' }, active: true });
     expect(policies[0]).toMatchObject({ when: { kind: 'schedule', from: '22:00', to: '07:00' }, action: { kind: 'block' }, active: false });
     expect(policies[1]).toMatchObject({ what: { kind: 'sites', sites: ['tiktok.com', 'tiktokv.com'] }, active: true });
     expect(policies[2]?.active).toBe(true);
@@ -103,7 +104,7 @@ describe('policies', () => {
     const p = await api.policies.create(
       block([{ type: 'client', id: tv }], { name: 'Quiet hours', when: { kind: 'schedule', days: [5, 6], from: '20:00', to: '08:00' } }),
     );
-    expect(p).toMatchObject({ order: 40, enabled: true, until: null, active: false });
+    expect(p).toMatchObject({ order: 50, enabled: true, until: null, active: false });
     const changed = await api.policies.update(p.id, { name: 'Weekend quiet', enabled: false });
     expect(changed).toMatchObject({ name: 'Weekend quiet', enabled: false, who: [{ type: 'client', id: tv }] });
     await api.policies.remove(p.id);
@@ -183,6 +184,49 @@ describe('policies', () => {
     const until = Math.floor(Date.now() / 1000) + 3600;
     expect((await api.policies.update(p.id, { until })).until).toBe(until);
     expect((await api.policies.update(p.id, { until: 0 })).until).toBeNull();
+  });
+});
+
+describe('route through', () => {
+  const route = (who: PolicyInput['who'], target: string, more: PolicyInput = {}): PolicyInput =>
+    block(who, { action: { kind: 'route', target, fallback: 'normal' }, ...more });
+
+  test('offers the VPN tunnels and the uplinks, with whether each is up', async () => {
+    expect(await api.policies.routeTargets()).toEqual([
+      { id: 'vpn:10101', kind: 'vpn', name: 'UK VPN', label: 'UK VPN (WireGuard)', up: true },
+      { id: 'uplink:wan', kind: 'uplink', name: 'Ethernet 1', label: 'Ethernet 1', up: true },
+      { id: 'uplink:secondwan', kind: 'uplink', name: 'Ethernet 2', label: 'Ethernet 2', up: false },
+    ]);
+  });
+
+  test('creates a policy that keeps its target and what happens when that is down', async () => {
+    const leo = await mac('Leo-iPad');
+    const p = await api.policies.create(route([{ type: 'client', id: leo }], 'uplink:wan'));
+    expect(p.action).toEqual({ kind: 'route', target: 'uplink:wan', fallback: 'normal' });
+    const safe = await api.policies.create(
+      block([{ type: 'client', id: leo }], { action: { kind: 'route', target: 'vpn:10101' } as never }),
+    );
+    expect(safe.action).toEqual({ kind: 'route', target: 'vpn:10101', fallback: 'block' });
+    expect(await find(p.name)).toMatchObject({ action: { kind: 'route', target: 'uplink:wan' } });
+  });
+
+  test('mistakes are explained in the router’s words', async () => {
+    const who = [{ type: 'client' as const, id: await mac('Leo-iPad') }];
+    await expect(api.policies.create(route(who, 'wan'))).rejects.toThrow('Choose a VPN tunnel or an internet connection to route through.');
+    await expect(api.policies.create(route(who, 'vpn:99999'))).rejects.toThrow('The router has no such VPN tunnel or internet connection.');
+    await expect(api.policies.create(route(who, 'vpn:10101', { what: { kind: 'everything' } }))).rejects.toThrow(
+      'Routing covers the internet or chosen sites',
+    );
+    await expect(
+      api.policies.create(route(who, 'vpn:10101', { action: { kind: 'route', target: 'vpn:10101', fallback: 'maybe' as never } })),
+    ).rejects.toThrow('either blocked or takes the normal route');
+  });
+
+  test('a change that leaves the route alone is fine, and it covers chosen sites too', async () => {
+    const tv = (await find('TV via UK VPN')) as Policy;
+    expect((await api.policies.update(tv.id, { enabled: false })).enabled).toBe(false);
+    const sites = await api.policies.update(tv.id, { what: { kind: 'sites', sites: ['netflix.com'] } });
+    expect(sites).toMatchObject({ what: { kind: 'sites' }, action: { kind: 'route' } });
   });
 });
 

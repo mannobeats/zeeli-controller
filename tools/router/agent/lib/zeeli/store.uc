@@ -6,7 +6,7 @@
 import { open as fsopen, readfile } from 'fs';
 import { cursor, paths, valid } from 'zeeli.common';
 
-const LIMITS = { groups: 64, members: 256, policies: 128, who: 32, sites: 50, name: 40 };
+const LIMITS = { groups: 64, members: 256, policies: 128, who: 32, sites: 50, name: 40, routes: 15 };
 const CONFIG = 'zeeli';
 
 /** A cursor on /etc/config/zeeli, creating the file first: UCI refuses to write a package that doesn't exist. */
@@ -63,7 +63,7 @@ function readPolicies(c) {
 			what: { kind: s.what ?? 'internet', sites: asList(s.site), network: s.what_network ?? null },
 			when: { kind: s.when ?? 'always', days: map(asList(s.day), (d) => int(d, 10)), from: s.from ?? null, to: s.to ?? null },
 			until: s.until ? int(s.until, 10) : null,
-			action: { kind: s.action ?? 'block', down: asNumber(s.down), up: asNumber(s.up) },
+			action: { kind: s.action ?? 'block', down: asNumber(s.down), up: asNumber(s.up), target: s.target ?? null, fallback: s.fallback == 'normal' ? 'normal' : 'block' },
 			tag: s.tag ?? '',
 		});
 	});
@@ -106,6 +106,10 @@ function writePolicy(c, p) {
 		c.set(CONFIG, sec, 'down', sprintf('%g', p.action.down ?? 0));
 		c.set(CONFIG, sec, 'up', sprintf('%g', p.action.up ?? 0));
 	}
+	if (p.action.kind == 'route') {
+		c.set(CONFIG, sec, 'target', p.action.target);
+		c.set(CONFIG, sec, 'fallback', p.action.fallback);
+	}
 	if (p.tag) c.set(CONFIG, sec, 'tag', p.tag);
 }
 
@@ -140,6 +144,9 @@ const isDomain = (d) =>
 	length(d) <= 253 &&
 	match(d, /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/) != null;
 
+/** What a route policy sends traffic through: `vpn:<GL tunnel id>` or `uplink:<kmwan interface>`. */
+const isRouteTarget = (v) => type(v) == 'string' && match(v, /^(vpn:[0-9]{1,9}|uplink:[a-z][a-z0-9_]{0,31})$/) != null;
+
 /** A firewall zone name, which is also the network's id in policies. */
 const isZoneName = (v) => type(v) == 'string' && match(v, /^[A-Za-z][A-Za-z0-9_]{0,31}$/) != null;
 
@@ -167,4 +174,4 @@ function uplinkZones(c) {
 
 // this ucode needs exports listed rather than marked inline
 export { LIMITS, open, newId, readGroups, readPolicies, writeGroup, writePolicy, removeGroup, removePolicy, commit };
-export { isNumber, isId, checkName, checkMacs, isDomain, isZoneName, zoneNames, uplinkZones };
+export { isNumber, isId, checkName, checkMacs, isDomain, isRouteTarget, isZoneName, zoneNames, uplinkZones };

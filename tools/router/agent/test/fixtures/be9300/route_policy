@@ -1,0 +1,59 @@
+package route_policy
+
+config policy 'global'
+	option enabled '0'
+	option mode '0'
+	option instance_on '0'
+	option use_fw4 '1'
+	option service_policy_en '0'
+	list append_source_if 'iot'
+
+config default
+	option type 'default'
+	option via 'novpn'
+	option name 'last sort default policy'
+	option from_type 'device'
+	option tunnel_id '100'
+	option enabled '1'
+	option mark '0x8000'
+
+config rule_process 'gl_process'
+	option name 'process policy'
+	option from_type 'process_gid'
+	list from '10000'
+	option tunnel_id '201'
+	option enabled '1'
+	option via 'novpn'
+	option mark '0x8000'
+
+config rule_process 'gl_process_vpn'
+	option name 'process policy'
+	option from_type 'process_gid'
+	option from '20000'
+	option tunnel_id '10100'
+	option enabled '1'
+	option via 'wgclient1'
+	option mark '0x1000'
+
+# The router has no VPN tunnels set up. These two are written by hand with the options GL's own
+# scripts read from a tunnel's rule (rtp2.sh, vpn-failover-trigger.sh, setup_instance_via.lua).
+config rule
+	option name 'UK VPN'
+	option enabled '1'
+	option killswitch '0'
+	option from_type 'ipset'
+	option via 'wgclient1'
+	option via_type 'wireguard'
+	option tunnel_id '10101'
+	option mark '0x1000'
+
+config rule
+	option name 'Work VPN'
+	option enabled '1'
+	option killswitch '1'
+	option from_type 'ipset'
+	option via 'ovpnclient2'
+	option via_type 'openvpn'
+	option tunnel_id '10102'
+	option mark '0xb000'
+

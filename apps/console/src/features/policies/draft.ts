@@ -1,12 +1,12 @@
-import type { Group, Policy, PolicyInput, PolicyWho } from '@zeeli/router-api';
+import type { Group, Policy, PolicyInput, PolicyWho, RouteFallback, RouteTarget } from '@zeeli/router-api';
 import { siteOf } from '../family/profile.ts';
 import { type Draft, type Names, suggestedName } from './sentence.ts';
 
 export type WhatKind = 'internet' | 'sites' | 'network' | 'everything';
-export type ActionKind = 'block' | 'allow' | 'limit';
+export type ActionKind = 'block' | 'allow' | 'limit' | 'route';
 /** How long a policy lasts: forever, as it is now, or a while from now. */
 export type Ends = 'never' | 'keep' | '1h' | '4h' | '12h' | '1d' | '7d';
-export type Preset = 'bedtime' | 'site' | 'pause' | 'limit' | '';
+export type Preset = 'bedtime' | 'site' | 'pause' | 'limit' | 'route' | '';
 
 export const ENDS: [Ends, string][] = [
   ['never', 'Never'],
@@ -35,11 +35,14 @@ export interface PolicyForm {
   action: ActionKind;
   down: string;
   up: string;
+  /** For a route: a `RouteTarget` id, and what happens while it is down. */
+  target: string;
+  fallback: RouteFallback;
 }
 
 const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7];
 
-export function emptyForm(preset: Preset, groups: Group[]): PolicyForm {
+export function emptyForm(preset: Preset, groups: Group[], targets: RouteTarget[] = []): PolicyForm {
   const first = groups[0];
   const form: PolicyForm = {
     name: '',
@@ -56,11 +59,14 @@ export function emptyForm(preset: Preset, groups: Group[]): PolicyForm {
     action: 'block',
     down: '',
     up: '',
+    target: targets[0]?.id ?? '',
+    fallback: 'block',
   };
   if (preset === 'bedtime') form.scheduled = true;
   if (preset === 'site') form.whatKind = 'sites';
   if (preset === 'pause') form.ends = '1h';
   if (preset === 'limit') form.action = 'limit';
+  if (preset === 'route') form.action = 'route';
   return form;
 }
 
@@ -80,6 +86,8 @@ export function formOf(p: Policy): PolicyForm {
     action: p.action.kind,
     down: p.action.kind === 'limit' && p.action.down ? String(p.action.down) : '',
     up: p.action.kind === 'limit' && p.action.up ? String(p.action.up) : '',
+    target: p.action.kind === 'route' ? p.action.target : '',
+    fallback: p.action.kind === 'route' ? p.action.fallback : 'block',
   };
 }
 
@@ -89,23 +97,30 @@ const sitesOf = (text: string) =>
     .map((line) => siteOf(line).toLowerCase())
     .filter(Boolean);
 
+/** A limit covers all of a device's traffic and a route only the internet or sites; the editor hides the other choices. */
+function whatOf(f: PolicyForm): Draft['what'] {
+  if (f.action === 'limit' && f.whatKind !== 'everything') return { kind: 'internet' };
+  if (f.action === 'route') return f.whatKind === 'sites' ? { kind: 'sites', sites: sitesOf(f.sites) } : { kind: 'internet' };
+  if (f.whatKind === 'sites') return { kind: 'sites', sites: sitesOf(f.sites) };
+  return f.whatKind === 'network' ? { kind: 'network', network: f.network } : { kind: f.whatKind };
+}
+
+function actionOf(f: PolicyForm): Draft['action'] {
+  if (f.action === 'limit') return { kind: 'limit', down: Number(f.down) || 0, up: Number(f.up) || 0 };
+  if (f.action === 'route') return { kind: 'route', target: f.target, fallback: f.fallback };
+  return { kind: f.action };
+}
+
 /** The parts a sentence is read from. `existing` is the end time to keep; `now` is the router's clock. */
 export function partsOf(f: PolicyForm, existing: number | null, now: number): Draft {
-  const what: Draft['what'] =
-    f.action === 'limit' && f.whatKind !== 'everything'
-      ? { kind: 'internet' }
-      : f.whatKind === 'sites'
-        ? { kind: 'sites', sites: sitesOf(f.sites) }
-        : f.whatKind === 'network'
-          ? { kind: 'network', network: f.network }
-          : { kind: f.whatKind };
+  const what = whatOf(f);
   const until = f.ends === 'never' ? null : f.ends === 'keep' ? existing : now + (SECONDS[f.ends] ?? 0);
   return {
     who: f.who,
     what,
     when: f.scheduled ? { kind: 'schedule', days: [...f.days].sort(), from: f.from, to: f.to } : { kind: 'always' },
     until,
-    action: f.action === 'limit' ? { kind: 'limit', down: Number(f.down) || 0, up: Number(f.up) || 0 } : { kind: f.action },
+    action: actionOf(f),
   };
 }
 

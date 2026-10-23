@@ -4,7 +4,7 @@ import { emptyForm, formOf, inputOf, partsOf } from './draft.ts';
 import type { Names } from './sentence.ts';
 
 const kids: Group = { id: 'a1b2c3', name: 'Kids', kind: 'person', members: [] };
-const names: Names = { clients: [] as Client[], groups: [kids], networks: [] as Network[] };
+const names: Names = { clients: [] as Client[], groups: [kids], networks: [] as Network[], targets: [] };
 const NOW = 1_800_000_000;
 
 const stored: Policy = {
@@ -48,6 +48,28 @@ test('sites are cleaned up and limits only cover the internet or everything', ()
     what: { kind: 'everything' },
     action: { kind: 'limit', down: 5, up: 0 },
   });
+});
+
+const targets = [
+  { id: 'vpn:10101', kind: 'vpn' as const, name: 'UK VPN', label: 'UK VPN (WireGuard)', up: true },
+  { id: 'uplink:wan', kind: 'uplink' as const, name: 'Ethernet 1', label: 'Ethernet 1', up: true },
+];
+
+test('a route starts on the first target, blocks by default, and covers the internet or sites', () => {
+  const f = emptyForm('route', [kids], targets);
+  expect(f).toMatchObject({ action: 'route', target: 'vpn:10101', fallback: 'block' });
+  expect(emptyForm('route', [kids]).target).toBe('');
+  expect(partsOf(f, null, NOW).action).toEqual({ kind: 'route', target: 'vpn:10101', fallback: 'block' });
+  expect(partsOf({ ...f, whatKind: 'network', network: 'guest' }, null, NOW).what).toEqual({ kind: 'internet' });
+  expect(partsOf({ ...f, whatKind: 'everything' }, null, NOW).what).toEqual({ kind: 'internet' });
+  expect(partsOf({ ...f, whatKind: 'sites', sites: 'netflix.com' }, null, NOW).what).toEqual({ kind: 'sites', sites: ['netflix.com'] });
+  const route: Policy = { ...stored, action: { kind: 'route', target: 'uplink:wan', fallback: 'normal' } };
+  expect(formOf(route)).toMatchObject({ action: 'route', target: 'uplink:wan', fallback: 'normal' });
+  expect(inputOf(formOf(route), { ...names, targets }, route, NOW)).toMatchObject({
+    name: 'Bedtime',
+    action: { kind: 'route', target: 'uplink:wan', fallback: 'normal' },
+  });
+  expect(inputOf({ ...f, name: '' }, { ...names, targets }, null, NOW).name).toBe('Route Kids through UK VPN');
 });
 
 test('end times count from the router’s clock', () => {

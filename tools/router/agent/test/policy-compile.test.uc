@@ -5,7 +5,7 @@
 
 import { readfile } from 'fs';
 import { eq, ok, test, done } from 'assert';
-import { CASES, ZONES, at, base, client, everyNight, group, kids, network, policy, MAYA, LEO, TABLET, TV } from 'cases';
+import { CASES, ZONES, at, base, client, everyNight, group, kids, network, policy, via, MAYA, LEO, TABLET, TV } from 'cases';
 import * as nft from 'zeeli.nftpolicy';
 
 const bedtime = () => policy('000001', 10, { who: [group('a1b2c3')], when: everyNight });
@@ -199,7 +199,7 @@ test('only the original direction of a connection is matched, so replies still g
 	for (let name in keys(CASES)) {
 		const rules = [];
 		for (let line in split(text(CASES[name]), '\n'))
-			if (match(line, /counter (drop|accept)$/)) push(rules, line);
+			if (match(line, /counter (drop|accept)$/) && index(line, 'meta mark and') < 0) push(rules, line);
 		for (let r in rules) ok(index(r, ' ct direction original counter ') > 0, `${name}: ${r}`);
 	}
 });
@@ -251,6 +251,99 @@ test('a sites policy sends its devices’ DNS to dnsmasq while it applies', () =
 test('a sites policy for a network redirects that network’s DNS', () => {
 	const c = nft.compile({ ...base, policies: [policy('000007', 10, { who: [network('guest')], what: { kind: 'sites', sites: ['tiktok.com'] } })], now: at(12, 0) });
 	eq(c.dns[0].rules, ['iifname { "br-guest" } udp dport 53 redirect to :53', 'iifname { "br-guest" } tcp dport 53 redirect to :53']);
+});
+
+/* ---------- route through ---------- */
+
+const route = (name, more) => nft.compile({ ...CASES[name], ...(more ?? {}) });
+
+test('a route policy marks its devices’ packets: GL’s mark for a tunnel, plus its own slot', () => {
+	const c = route('route-vpn-block');
+	eq(c.routes, [{ name: 'zeeli_p_000007', rules: ['ether saddr @zeeli_c_000007 fib daddr type != { local, broadcast, multicast } meta mark and 0x0f000000 == 0x00000000 counter meta mark set meta mark or 0x01001000'] }]);
+	eq(c.chains, [], 'and nothing in the forward chains');
+	eq(c.blocked, [], 'a route blocks nobody');
+	eq(c.routed, { [TV]: 'vpn:10101/block' });
+	eq(c.uplinks, [], 'a tunnel needs no table of ours: GL has one');
+});
+
+test('an uplink gets a table and ip rules for its slot, only while its policy applies', () => {
+	const night = route('route-uplink-night'), day = route('route-uplink-day');
+	eq(night.uplinks, [{ slot: 1, mark: 0x01000000, table: 7701, dev: 'eth2', gw: '192.168.2.1', target: 'uplink:secondwan' }]);
+	eq(day.uplinks, []);
+	eq(night.routed, { [MAYA]: 'uplink:secondwan/normal', [LEO]: 'uplink:secondwan/normal', [TABLET]: 'uplink:secondwan/normal' });
+	eq(day.routed, {});
+	eq(night.routes[0].rules[0], 'ether saddr @zeeli_g_a1b2c3 fib daddr type != { local, broadcast, multicast } meta mark and 0x0f000000 == 0x00000000 counter meta mark set meta mark or 0x01000000');
+	eq(day.routes, [{ name: 'zeeli_p_000008', rules: [] }], 'its chain stays, empty');
+	eq(nft.structureOf(nft.render(night)), nft.structureOf(nft.render(day)), 'a schedule flipping is a live change');
+});
+
+test('a mark means the same thing whether or not its policy applies', () => {
+	const slotOf = (c, id) => match(filter(c.routes, (ch) => ch.name == `zeeli_p_${id}`)[0].rules[0] ?? '', /or 0x0([0-9a-f])/)?.[1];
+	const night = route('route-sites-and-order'), day = route('route-sites-and-order', { now: at(12, 0) });
+	eq([slotOf(night, '000007'), slotOf(night, '000009')], ['2', '3']);
+	eq([slotOf(day, '000007'), slotOf(day, '000009')], ['2', '3'], 'the night-time policy (slot 1) being off changes nothing');
+});
+
+test('the first route policy to cover a device wins, and a drop that keeps traffic in goes ahead of every policy', () => {
+	const out = text(CASES['route-sites-and-order']);
+	ok(index(out, 'chain zeeli_forward {\n\t\ttype filter hook forward priority -1; policy accept;\n\t\tjump zeeli_k_000007\n\t\tjump zeeli_k_000008\n\t\tjump zeeli_k_000009\n\t\tjump zeeli_p_000001\n') >= 0, 'drops first');
+	ok(index(out, 'chain zeeli_route {\n\t\ttype filter hook prerouting priority -151; policy accept;\n\t\tjump zeeli_p_000007\n') >= 0, 'marks in order');
+	const c = nft.compile(CASES['route-sites-and-order']);
+	eq(c.routed[TV], 'vpn:10101/block', 'the TV’s first route policy decides the report');
+	eq(c.blocked, [MAYA, LEO, TABLET], 'a block elsewhere in the list still applies to routed devices');
+});
+
+test('fallback: block marks even while the target is down and drops what would leave another way; normal marks nothing', () => {
+	const c = nft.compile(CASES['route-target-down']);
+	eq(length(c.routes[0].rules), 1, 'block keeps marking, so GL’s table or the drop catches it');
+	eq(c.routes[1].rules, [], 'normal falls back to the normal route');
+	eq(c.routes[2].rules, []);
+	eq(c.kills[0].rules, ['meta mark and 0x0f000000 == 0x02000000 oifname { "eth0", "eth2", "sta1" } counter drop']);
+	eq(c.uplinks, [], 'an uplink that is down gets no table');
+	eq(c.routed, { [TV]: 'vpn:10101/block' });
+});
+
+test('the drop leaves out the target’s own device and nothing that isn’t internet-facing', () => {
+	const c = route('route-vpn-block', { zones: { ...CASES['route-vpn-block'].zones, lan: ['br-lan'] } });
+	eq(c.kills[0].rules, ['meta mark and 0x0f000000 == 0x01000000 oifname { "eth0", "eth2", "sta1" } counter drop']);
+	const eth2 = route('route-uplink-night', { policies: [{ ...CASES['route-uplink-night'].policies[0], action: via('uplink:secondwan', 'block') }] });
+	eq(eth2.kills[0].rules, ['meta mark and 0x0f000000 == 0x01000000 oifname { "eth0", "sta1", "wgclient1" } counter drop']);
+});
+
+test('a target the router no longer has: block cuts the devices off, normal does nothing, and both say so', () => {
+	const block = route('route-vpn-block', { targets: {} }), normal = route('route-vpn-block', { targets: {}, policies: [{ ...CASES['route-vpn-block'].policies[0], action: via('vpn:10101', 'normal') }] });
+	eq(block.routes[0].rules, ['ether saddr @zeeli_c_000007 fib daddr type != { local, broadcast, multicast } meta mark and 0x0f000000 == 0x00000000 counter meta mark set meta mark or 0x01000000']);
+	eq(length(block.kills[0].rules), 1);
+	eq(normal.routes[0].rules, []);
+	eq(normal.kills[0].rules, []);
+	ok(index(block.warnings[0], 'no internet') > 0 && index(normal.warnings[0], 'does nothing') > 0, `${block.warnings[0]} / ${normal.warnings[0]}`);
+});
+
+test('IPv6 on: a warning for uplink routes, which only cover IPv4', () => {
+	const c = route('route-uplink-night', { ipv6: true });
+	ok(index(c.warnings[0], 'IPv6') > 0, c.warnings[0]);
+	eq(route('route-vpn-block', { ipv6: true }).warnings, [], 'a tunnel handles IPv6 itself');
+});
+
+test('a route policy for sites marks only traffic to the sites, and uses the DNS redirect', () => {
+	const c = route('route-sites-and-order');
+	eq(c.routes[2].rules[0], 'ether saddr @zeeli_c_000009 ip daddr @zeeli_s4_000009 fib daddr type != { local, broadcast, multicast } meta mark and 0x0f000000 == 0x00000000 counter meta mark set meta mark or 0x03001000');
+	eq(c.sites, { '000009': ['netflix.com'] });
+	eq(c.dns[0].name, 'zeeli_d_000009');
+});
+
+test('ownedNames and the live commands cover the route chains', () => {
+	const c = nft.compile(CASES['route-uplink-night']);
+	eq(nft.ownedNames(c).chains, ['zeeli_forward', 'zeeli_rev', 'zeeli_route', 'zeeli_p_000008', 'zeeli_k_000008']);
+	const live = nft.liveCommands(c);
+	ok(index(live, 'flush chain inet fw4 zeeli_p_000008\nadd rule inet fw4 zeeli_p_000008 ether saddr @zeeli_g_a1b2c3 fib daddr type') >= 0, live);
+	ok(index(live, 'flush chain inet fw4 zeeli_k_000008\nflush chain inet fw4 zeeli_rev') >= 0, live);
+});
+
+test('the route hook is at -151, one ahead of GL’s mangle chains at -150', () => {
+	const out = text(CASES['route-uplink-night']);
+	ok(index(out, 'chain zeeli_route {\n\t\ttype filter hook prerouting priority -151; policy accept;') >= 0);
+	eq(length(filter(split(out, '\n'), (l) => index(l, 'hook ') >= 0)), 2, 'and only forward besides it');
 });
 
 done();

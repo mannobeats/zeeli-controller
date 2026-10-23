@@ -16,6 +16,13 @@ return serve({
 			}
 		},
 
+		/** What a route policy can send traffic through: GL's VPN tunnels and the internet uplinks, with whether each is up. */
+		route_targets: {
+			call: function() {
+				return policies.routeTargets();
+			}
+		},
+
 		/** What the router is doing about policies: the include, what runs now, limits and warnings. */
 		status: {
 			call: function() {

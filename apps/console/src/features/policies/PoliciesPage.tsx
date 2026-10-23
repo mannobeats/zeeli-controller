@@ -17,7 +17,7 @@ import type { Preset } from './draft.ts';
 import { PolicySheet } from './PolicySheet.tsx';
 import { useAgentVersion, useNames, usePolicyList } from './queries.ts';
 import { Sentence } from './Sentence.tsx';
-import { suggestedName } from './sentence.ts';
+import { type Names, suggestedName } from './sentence.ts';
 
 const stop = (e: MouseEvent) => e.stopPropagation();
 
@@ -26,6 +26,7 @@ const PRESETS: [Preset, string, string][] = [
   ['pause', 'Pause for a while', 'Cut a device or group off now. The router lifts it by itself.'],
   ['site', 'Block a site', 'Keep chosen devices away from a website, such as TikTok.'],
   ['limit', 'Limit speed', 'Hold a device or group to a download and upload speed.'],
+  ['route', 'Route through a VPN', 'Send a device or group out through a VPN tunnel or a chosen internet connection.'],
   ['', 'From scratch', 'Pick who, what, when and the action yourself.'],
 ];
 
@@ -38,9 +39,15 @@ export default function PoliciesPage() {
   );
 }
 
-function PolicyState({ policy: p }: { policy: Policy }) {
+function PolicyState({ policy: p, names }: { policy: Policy; names: Names }) {
   if (!p.enabled) return <Chip>Off</Chip>;
-  return p.active ? <Chip tone="ok">Active</Chip> : <Chip>Not now</Chip>;
+  if (!p.active) return <Chip>Not now</Chip>;
+  const a = p.action;
+  if (a.kind !== 'route') return <Chip tone="ok">Active</Chip>;
+  const target = names.targets.find((t) => t.id === a.target);
+  if (target?.up) return <Chip tone="ok">Active</Chip>;
+  const name = target?.name ?? 'The connection';
+  return a.fallback === 'block' ? <Chip tone="bad">Blocked: {name} is down</Chip> : <Chip tone="warn">{name} is down</Chip>;
 }
 
 /** Switching on and off, deleting and moving, each with its toast. */
@@ -108,7 +115,7 @@ interface TableProps {
   policies: Policy[];
   now: number;
   warnings: string[];
-  names: ReturnType<typeof useNames>['names'];
+  names: Names;
   editing: { policy: Policy | null; preset: Preset } | null;
   setEditing: (e: { policy: Policy | null; preset: Preset } | null) => void;
 }
@@ -185,7 +192,7 @@ function PolicyTable({ policies, now, warnings, names, editing, setEditing }: Ta
                   </>
                 ),
               },
-              { key: 'state', header: 'State', phone: 'sub', cell: (p) => <PolicyState policy={p} /> },
+              { key: 'state', header: 'State', phone: 'sub', cell: (p) => <PolicyState policy={p} names={names} /> },
               {
                 key: 'on',
                 header: 'On',
