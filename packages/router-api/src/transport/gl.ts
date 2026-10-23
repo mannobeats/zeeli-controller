@@ -68,6 +68,21 @@ export function createGlTransport(base = ''): Transport {
   const listeners = new Set<() => void>();
   const sid = () => cookie('Admin-Token');
 
+  /** The error for a failed call. "Access denied" means the session this call used has ended. */
+  function rpcError({ code, message, data }: NonNullable<RpcBody<unknown>['error']>, asked: string) {
+    if (message === 'Access denied') {
+      // an answer for a session that expired before a fresh sign-in mustn't sign the new one out
+      if (sid() === asked) {
+        setSid('');
+        for (const fn of listeners) fn();
+      }
+      return new RouterError('signedOut', 'Your session ended. Sign in again.', data);
+    }
+    if (message === 'Login fail number over limit')
+      return new RouterError('tooManyAttempts', 'Too many attempts. Wait a minute, then try again.', data);
+    return new RouterError(code === -32602 ? 'invalid' : 'failed', message, data);
+  }
+
   async function rpc<T>(method: string, params: unknown, timeoutMs = DEFAULT_TIMEOUT): Promise<T> {
     const asked = sid();
     const body = await post<RpcBody<T>>(
@@ -79,21 +94,7 @@ export function createGlTransport(base = ''): Transport {
       timeoutMs,
     );
     if (body?.jsonrpc !== '2.0') throw new RouterError('failed', 'The router sent an unexpected answer.');
-    if (body.error) {
-      const { message, data } = body.error;
-      if (message === 'Access denied') {
-        // only the session this call used has ended: an answer for one that expired before
-        // a fresh sign-in mustn't sign the new one out
-        if (sid() === asked) {
-          setSid('');
-          for (const fn of listeners) fn();
-        }
-        throw new RouterError('signedOut', 'Your session ended. Sign in again.', data);
-      }
-      if (message === 'Login fail number over limit')
-        throw new RouterError('tooManyAttempts', 'Too many attempts. Wait a minute, then try again.', data);
-      throw new RouterError(body.error.code === -32602 ? 'invalid' : 'failed', message, data);
-    }
+    if (body.error) throw rpcError(body.error, asked);
     const result = body.result as T & { err_code?: number; err_msg?: string };
     if (result && typeof result === 'object' && (result.err_code || result.err_msg))
       throw new RouterError('failed', result.err_msg || `Error ${result.err_code}`, result);
