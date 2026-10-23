@@ -5,6 +5,7 @@ import {
   cidrText,
   hostCount,
   inSubnet,
+  ipToInt,
   isIpv4,
   isMac,
   lastHost,
@@ -59,4 +60,9 @@ test('subnet helpers find networks, overlaps and their addresses', () => {
   expect(nthAddress(lab, 6)).toBe('10.0.30.6');
   expect(lastHost(lab)).toBe('10.0.30.254');
   expect(lastHost(parseCidr('192.168.8.0/22') as Cidr)).toBe('192.168.11.254');
+});
+
+test('addresses compare as numbers', () => {
+  expect(ipToInt('10.0.0.2') > ipToInt('10.0.0.1')).toBe(true);
+  expect(ipToInt('10.0.1.0') > ipToInt('10.0.0.255')).toBe(true);
 });

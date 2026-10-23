@@ -1,5 +1,25 @@
 import { isIpv4, type Network, type NetworkInput, type WanAccess } from '@zeeli/router-api';
 
+export type DnsChoice = 'router' | 'cloudflare' | 'family' | 'quad9' | 'custom';
+/** DNS servers handed to devices; the router's own is the default and sends none. */
+const DNS_SERVERS: Record<Exclude<DnsChoice, 'custom'>, string[]> = {
+  router: [],
+  cloudflare: ['1.1.1.1', '1.0.0.1'],
+  family: ['1.1.1.3', '1.0.0.3'],
+  quad9: ['9.9.9.9', '149.112.112.112'],
+};
+export const DNS_NAMES: Record<DnsChoice, string> = {
+  router: 'Router (uses AdGuard when it’s on)',
+  cloudflare: 'Cloudflare',
+  family: 'Cloudflare Family (blocks adult sites)',
+  quad9: 'Quad9 (blocks malware)',
+  custom: 'Custom',
+};
+
+/** Which choice a stored DNS list is. */
+export const dnsChoiceOf = (dns: string[]): DnsChoice =>
+  (Object.keys(DNS_SERVERS) as (keyof typeof DNS_SERVERS)[]).find((k) => DNS_SERVERS[k].join() === dns.join()) ?? 'custom';
+
 export interface NetworkFormValues {
   label: string;
   enabled: boolean;
@@ -12,6 +32,7 @@ export interface NetworkFormValues {
   dhcpStart: string;
   dhcpEnd: string;
   leaseTime: string;
+  dnsChoice: DnsChoice;
   dns1: string;
   dns2: string;
 }
@@ -28,6 +49,7 @@ const BLANK: NetworkFormValues = {
   dhcpStart: '',
   dhcpEnd: '',
   leaseTime: '12h',
+  dnsChoice: 'router',
   dns1: '',
   dns2: '',
 };
@@ -48,6 +70,7 @@ export function formValues(n: Network | null): NetworkFormValues {
     dhcpStart: or('dhcpStart'),
     dhcpEnd: or('dhcpEnd'),
     leaseTime: or('leaseTime'),
+    dnsChoice: dnsChoiceOf(n.dns),
     dns1: n.dns[0] ?? '',
     dns2: n.dns[1] ?? '',
   };
@@ -73,6 +96,6 @@ export function toNetworkInput(v: NetworkFormValues, network: Network | null): N
     dhcpStart: v.dhcpStart,
     dhcpEnd: v.dhcpEnd,
     leaseTime: v.leaseTime,
-    dns: [v.dns1, v.dns2].filter(Boolean),
+    dns: v.dnsChoice === 'custom' ? [v.dns1, v.dns2].filter(Boolean) : DNS_SERVERS[v.dnsChoice],
   };
 }
