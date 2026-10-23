@@ -79,6 +79,8 @@ agent() {
     CHANGED=1
   done
   echo "$NEW" >"$MANIFEST"
+  # root owns everything that runs as root, including files an older install left alone
+  for f in $NEW; do chown 0:0 "$f"; done
   # services start once every file they read is in place
   if [ -n "$CHANGED" ]; then
     for f in $NEW; do
