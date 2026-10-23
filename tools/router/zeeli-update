@@ -116,6 +116,13 @@ case "${1:-}" in
       case "$f" in /etc/init.d/*) [ ! -x "$f" ] || { "$f" stop; "$f" disable; } || true ;; esac
     done
     for f in $(cat /usr/share/zeeli/manifest 2>/dev/null); do rm -f "$f"; done
+    # WiFi networks a schedule was holding off come back on, since nothing will turn them on later
+    for s in $(uci -q show wireless | sed -n "s/^wireless\.\(zeeli_[a-z0-9_]*\)\.sched_off='1'$/\1/p"); do
+      uci -q set "wireless.$s.disabled=0" || true
+      uci -q delete "wireless.$s.sched_off" || true
+      HELD=1
+    done
+    [ -z "${HELD:-}" ] || { uci commit wireless; wifi reload || true; }
     # what the agent wrote into the router's own settings: the policies' firewall include and
     # the dnsmasq sets that fill it. Zeeli's WiFi networks stay; they're plain WiFi networks.
     uci -q delete firewall.zeeli_policies || true
