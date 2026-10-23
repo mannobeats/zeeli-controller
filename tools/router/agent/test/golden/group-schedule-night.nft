@@ -1,0 +1,26 @@
+table inet zeeli_check {
+	define guest_devices = { "br-guest" }
+	define iot_devices = { "br-iot" }
+	define lan_devices = { "br-lan" }
+	define wan_devices = { "eth0", "sta1" }
+
+# Written by the Zeeli agent from your policies. Changes made here are overwritten.
+
+	set zeeli_g_a1b2c3 {
+		type ether_addr
+		elements = {
+			02:5e:e1:10:14:c8,
+			02:5e:e1:17:2b:c1,
+			02:5e:e1:24:33:d0,
+		}
+	}
+
+	chain zeeli_p_000001 {
+		ether saddr @zeeli_g_a1b2c3 oifname $wan_devices counter drop
+	}
+
+	chain zeeli_forward {
+		type filter hook forward priority -1; policy accept;
+		jump zeeli_p_000001
+	}
+}
