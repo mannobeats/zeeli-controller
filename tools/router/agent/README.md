@@ -371,7 +371,6 @@ done
 ## Local names
 
 `zeeli.names` (`rpcd/zeeli-names.uc`, `lib/zeeli/names.uc`) gives every named device a `<name>.lan` address.
-
 - The console sends the list of named devices (`sync`: `mac`, `name`, `ip`). The agent keeps `mac|name` in `config names 'zeeli_names'` in `/etc/config/zeeli`, with the on/off switch (`enabled`, default on) and the MACs a person set up or dismissed from onboarding (`dismissed`).
 - `bin/zeeli-collector` calls `names.refresh` every tick with the router's clients, so a name follows its device when DHCP moves it. It writes `/tmp/hosts/zeeli` (one `ip host.lan` per line) only when the text changed, and then runs `/etc/init.d/dnsmasq reload`. dnsmasq reads all of `/tmp/hosts` (`addn-hosts=/tmp/hosts`). `zeeli-update remove` deletes the file.
 - Host names: lower case, runs of anything but `a-z0-9` become `-`, no leading or trailing `-`, at most 63 characters. Repeats get `-2`, `-3` in MAC order, so a suffix doesn't move when another device is named.
