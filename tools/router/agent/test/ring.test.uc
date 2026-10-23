@@ -1,7 +1,7 @@
 'use strict';
 
 import { eq, ok, test, done } from 'assert';
-import { stat } from 'fs';
+import { readfile, stat, writefile } from 'fs';
 import { paths } from 'zeeli.common';
 import * as ring from 'zeeli.ring';
 
@@ -104,7 +104,45 @@ test('a history file has a fixed size however long it runs', () => {
 	const before = stat(p).size;
 	for (let m = 1; m < 3000; m++) ring.put(p, 'traffic', T0 + m * 60, [m, m], 0);
 	eq(stat(p).size, before);
-	ok(before < 52000, `a traffic file is ${before} bytes`);
+	ok(before < 62000, `a traffic file is ${before} bytes`);
+});
+
+test('a day can hold far more than a terabyte', () => {
+	const p = file('big');
+	// 2.5 Gbps for a day is 27 TB
+	ring.put(p, 'traffic', T0 + 60, [27000000000000, 3000000000000], 0);
+	ring.put(p, 'traffic', T0 + 120, [1000000000000, 1], 0);
+	eq(seen(p, 2, T0 + 120, 0), [[T0, 28000000000000, 3000000000001]]);
+});
+
+/** Turn a file into what the first release wrote: ZRING1 and 10-digit traffic slots. */
+function downgrade(path) {
+	const text = readfile(path);
+	let out = sprintf('%-95s\n', replace(trim(substr(text, 0, 96)), 'ZRING2', 'ZRING1'));
+	for (let i = 96; i < length(text); i += 12) out += substr(text, i, 1) == '-' ? '----------' : substr(text, i + 2, 10);
+	writefile(path, out);
+}
+
+test('a file from the first release still reads, and is widened by the next sample', () => {
+	const p = file('legacy');
+	ring.put(p, 'traffic', T0 + 60, [1099511627775, 9], 0);
+	const wide = stat(p).size;
+	downgrade(p);
+	ok(stat(p).size < wide);
+	eq(seen(p, 0, T0 + 60, 0), [[T0 + 60, 1099511627775, 9]]);
+	eq(seen(p, 2, T0 + 60, 0), [[T0, 1099511627775, 9]]);
+	ok(ring.put(p, 'traffic', T0 + 120, [1099511627775, 1], 0));
+	eq(stat(p).size, wide);
+	// the old maximum no longer caps the day
+	eq(seen(p, 2, T0 + 120, 0), [[T0, 2199023255550, 10]]);
+	eq(substr(readfile(p), 0, 6), 'ZRING2');
+});
+
+test('the gauge files of the first release read as they are', () => {
+	const p = file('oldsys');
+	ring.put(p, 'system', T0 + 60, [100, 500, 600], 0);
+	writefile(p, replace(readfile(p), 'ZRING2', 'ZRING1'));
+	eq(seen(p, 0, T0 + 60, 0), [[T0 + 60, 100, 500, 600]]);
 });
 
 done();

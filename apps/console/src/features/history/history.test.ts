@@ -65,6 +65,7 @@ test('mean, lowest and highest ignore gaps', () => {
 });
 
 test('latency and loss print the way people read them', () => {
+  expect([ms(0), ms(25), ms(2.5)]).toEqual(['0 ms', '25 ms', '2.5 ms']);
   expect([ms(2.25), ms(21.6), percent(0), percent(0.45), percent(12.3)]).toEqual(['2.3 ms', '22 ms', '0%', '0.5%', '12%']);
-  expect([show(null, ms), show(5, ms)]).toEqual(['–', '5.0 ms']);
+  expect([show(null, ms), show(5, ms)]).toEqual(['–', '5 ms']);
 });

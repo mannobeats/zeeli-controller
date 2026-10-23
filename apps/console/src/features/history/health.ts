@@ -11,8 +11,8 @@ export function stats(values: (number | null)[]) {
 export const summary = <P extends object>(series: Series<P>, field: keyof P) =>
   stats(series.points.map((p) => (typeof p?.[field] === 'number' ? (p[field] as number) : null)));
 
-/** Milliseconds as people read them: one decimal under 10, none above. */
-export const ms = (v: number) => `${v < 10 ? v.toFixed(1) : Math.round(v)} ms`;
+/** Milliseconds as people read them: whole numbers, with one decimal only for a fraction under 10. */
+export const ms = (v: number) => `${Number.isInteger(v) || v >= 10 ? Math.round(v) : v.toFixed(1)} ms`;
 export const percent = (v: number) => `${Number(v.toFixed(v < 10 ? 1 : 0))}%`;
 /** A number in `format`, or a dash when there isn't one. */
 export const show = (v: number | null, format: (v: number) => string) => (v === null ? '–' : format(v));

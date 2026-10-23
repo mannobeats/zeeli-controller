@@ -37,7 +37,6 @@ export function TrafficPage() {
         <>
           <PageHeader
             title="Traffic"
-            sub={r.enable ? STAT_PERIODS[r.time] : 'Per-app counting is off'}
             actions={
               <Button
                 variant="danger"
@@ -66,7 +65,7 @@ export function TrafficPage() {
             <TrafficHistory />
           </HistoryGate>
           <Grid cols={2}>
-            <Panel title="Total">
+            <Panel title="Total" note={r.enable ? STAT_PERIODS[r.time] : 'Per-app counting is off'}>
               {usage.data ? (
                 <>
                   <div className="rates">
