@@ -2,9 +2,11 @@
 // schedules. Thin: it reads the declared arguments and calls zeeli.wifi (lib/zeeli/wifi.uc).
 'use strict';
 
+import { serve } from 'zeeli.common';
+
 import { list, reveal, create, update, remove, setEnabled, apply, setSchedule, clearSchedule, tick } from 'zeeli.wifi';
 
-return {
+return serve({
 	'zeeli.wifi': {
 		/** Every AP: the router's own slots and ours, per-radio slot use, the networks one can join. No keys. */
 		list: {
@@ -78,4 +80,4 @@ return {
 			}
 		}
 	}
-};
+});

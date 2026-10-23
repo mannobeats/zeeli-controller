@@ -5,9 +5,11 @@
 // against the example below and the firmware's bridge may send a whole number as a float.
 'use strict';
 
+import { serve } from 'zeeli.common';
+
 import * as stats from 'zeeli.stats';
 
-return {
+return serve({
 	'zeeli.stats': {
 		/** One thing's history: kind wan|network|client|system|health, its id, range 24h|30d|12m. */
 		series: {
@@ -47,4 +49,4 @@ return {
 			call: () => stats.status(),
 		},
 	},
-};
+});

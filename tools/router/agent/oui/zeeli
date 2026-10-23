@@ -20,7 +20,8 @@ function M.call(params)
     if res.error then
         return { err_code = -1, err_msg = tostring(res.error) }
     end
-    return res
+    -- the value stays a JSON string all the way to the console (see serve in zeeli.common)
+    return { json = res.json }
 end
 
 return M

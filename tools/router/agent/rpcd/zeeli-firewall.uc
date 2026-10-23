@@ -4,7 +4,7 @@
 // time or the agent puts the firewall back as it was (see lib/zeeli/rollback.uc).
 'use strict';
 
-import { fail } from 'zeeli.common';
+import { fail, serve } from 'zeeli.common';
 import * as fw from 'zeeli.firewall';
 import * as rollback from 'zeeli.rollback';
 
@@ -23,7 +23,7 @@ const FIELDS = {
 	enabled: true,
 };
 
-return {
+return serve({
 	'zeeli.firewall': {
 		zones: { call: function() { return fw.zones(); } },
 		networks: { call: function() { return fw.networks(); } },
@@ -102,4 +102,4 @@ return {
 			}
 		}
 	}
-};
+});

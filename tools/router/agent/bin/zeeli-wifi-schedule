@@ -9,7 +9,8 @@ ubus -t 60 wait_for zeeli.wifi 2>/dev/null
 
 while :; do
   out=$(ubus -t 20 call zeeli.wifi tick 2>/dev/null)
-  if [ "$(jsonfilter -s "$out" -e '@.changed' 2>/dev/null)" = true ]; then
+  # agent replies carry their value as a JSON string in "json"
+  if [ "$(jsonfilter -s "$(jsonfilter -s "$out" -e '@.json' 2>/dev/null)" -e '@.changed' 2>/dev/null)" = true ]; then
     ubus -t 90 call zeeli.wifi apply >/dev/null 2>&1
   fi
   s=$(date +%S)

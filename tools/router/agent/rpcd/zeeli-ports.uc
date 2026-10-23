@@ -1,9 +1,11 @@
 // zeeli.ports: per-port link state and devices, and port profiles.
 'use strict';
 
+import { serve } from 'zeeli.common';
+
 import * as ports from 'zeeli.ports';
 
-return {
+return serve({
 	'zeeli.ports': {
 		/** Each physical port’s link, speed, duplex and the devices seen behind it. */
 		status: {
@@ -30,4 +32,4 @@ return {
 			}
 		}
 	}
-};
+});

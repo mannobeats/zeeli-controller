@@ -1,9 +1,9 @@
 // zeeli.system: the agent itself. Its version, and installing console releases.
 'use strict';
 
-import { fail, run, valid, version } from 'zeeli.common';
+import { fail, run, serve, valid, version } from 'zeeli.common';
 
-return {
+return serve({
 	'zeeli.system': {
 		version: {
 			call: function() {
@@ -23,4 +23,4 @@ return {
 			}
 		}
 	}
-};
+});

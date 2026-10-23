@@ -24,7 +24,18 @@ function test(name, fn) {
 
 /** Load an rpcd plugin file and return its object, e.g. plugin('system')['zeeli.system']. */
 function plugin(area) {
-	return loadfile(`${getenv('ZEELI_AGENT')}/rpcd/zeeli-${area}.uc`)();
+	const objects = loadfile(`${getenv('ZEELI_AGENT')}/rpcd/zeeli-${area}.uc`)();
+	// replies travel as a JSON string (see serve in zeeli.common); tests read the value inside
+	for (let name in keys(objects))
+		for (let method in keys(objects[name])) {
+			const m = objects[name][method];
+			const wire = m.call;
+			m.call = function(request) {
+				const r = wire(request);
+				return type(r?.json) == 'string' ? json(r.json) : r;
+			};
+		}
+	return objects;
 }
 
 function done() {

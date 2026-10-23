@@ -1,9 +1,11 @@
 // zeeli.groups: named sets of devices for policies. Calls go straight to lib/zeeli/groups.uc.
 'use strict';
 
+import { serve } from 'zeeli.common';
+
 import * as groups from 'zeeli.groups';
 
-return {
+return serve({
 	'zeeli.groups': {
 		list: {
 			call: function() {
@@ -47,4 +49,4 @@ return {
 			}
 		}
 	}
-};
+});

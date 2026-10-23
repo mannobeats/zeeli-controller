@@ -187,3 +187,26 @@ test('a reset connection, before or while the agent answers, is reported as offl
   fetchMock.mockResolvedValueOnce({ json: async () => Promise.reject(new TypeError('network error')) });
   expect(await kindOf(t.zeeli('firewall', 'confirm', { token: 'x' }))).toBe('offline');
 });
+
+test('agent replies arrive as a JSON string, so lists with empty entries survive GL’s session service', async () => {
+  const t = createGlTransport('/base');
+  answer({ jsonrpc: '2.0', id: 1, result: { json: '{"points":[[1,null],null]}' } });
+  expect(await t.zeeli('stats', 'series', { kind: 'wan' })).toEqual({ points: [[1, null], null] });
+  expect(sentBody().params).toEqual(['abc', 'zeeli', 'call', { area: 'stats', method: 'series', args: { kind: 'wan' } }]);
+});
+
+test('an “Access denied” for a session that was already replaced doesn’t sign the new one out', async () => {
+  const doc = { cookie: 'Admin-Token=old' };
+  vi.stubGlobal('document', doc);
+  const t = createGlTransport('/base');
+  const signedOut = vi.fn();
+  t.session.onSignedOut(signedOut);
+  let reply: (v: unknown) => void = () => undefined;
+  fetchMock.mockReturnValueOnce(new Promise((r) => (reply = r)));
+  const stale = t.call('clients', 'get_list');
+  doc.cookie = 'Admin-Token=new';
+  reply({ json: async () => ({ jsonrpc: '2.0', error: { code: -32000, message: 'Access denied' } }) });
+  expect(await kindOf(stale)).toBe('signedOut');
+  expect(signedOut).not.toHaveBeenCalled();
+  expect(doc.cookie).toBe('Admin-Token=new');
+});

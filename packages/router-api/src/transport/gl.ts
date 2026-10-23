@@ -69,6 +69,7 @@ export function createGlTransport(base = ''): Transport {
   const sid = () => cookie('Admin-Token');
 
   async function rpc<T>(method: string, params: unknown, timeoutMs = DEFAULT_TIMEOUT): Promise<T> {
+    const asked = sid();
     const body = await post<RpcBody<T>>(
       `${base}/rpc`,
       {
@@ -81,8 +82,12 @@ export function createGlTransport(base = ''): Transport {
     if (body.error) {
       const { message, data } = body.error;
       if (message === 'Access denied') {
-        setSid('');
-        for (const fn of listeners) fn();
+        // only the session this call used has ended: an answer for one that expired before
+        // a fresh sign-in mustn't sign the new one out
+        if (sid() === asked) {
+          setSid('');
+          for (const fn of listeners) fn();
+        }
         throw new RouterError('signedOut', 'Your session ended. Sign in again.', data);
       }
       if (message === 'Login fail number over limit')
@@ -195,8 +200,12 @@ export function createGlTransport(base = ''): Transport {
   return {
     session,
     call: (module, fn, args = {}, timeoutMs) => rpc('call', [sid(), module, fn, args], timeoutMs),
-    // the agent's bridge in GL's /rpc forwards to ubus `zeeli.<area>`
-    zeeli: (area, method, args = {}, timeoutMs) => rpc('call', [sid(), 'zeeli', 'call', { area, method, args }], timeoutMs),
+    // the agent's bridge in GL's /rpc forwards to ubus `zeeli.<area>`; the value comes back as a
+    // JSON string, because GL's session service can't re-encode lists that hold nulls
+    async zeeli(area, method, args = {}, timeoutMs) {
+      const r = await rpc<{ json?: string }>('call', [sid(), 'zeeli', 'call', { area, method, args }], timeoutMs);
+      return (typeof r?.json === 'string' ? JSON.parse(r.json) : r) as never;
+    },
     ubus,
     execDirect,
     async adguard(path, init) {

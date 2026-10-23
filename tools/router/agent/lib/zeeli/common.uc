@@ -59,5 +59,26 @@ const valid = {
 	mac: (s) => type(s) == 'string' && match(s, /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/) != null,
 };
 
+/**
+ * Wrap an rpcd plugin's objects so every reply travels as one JSON string. GL's /rpc reaches
+ * the agent through gl-ngx-session's ubus proxy, which re-encodes replies with Lua's cjson: a
+ * list holding a null (a chart's empty minute) becomes a sparse table, cjson throws, and the
+ * whole session service restarts, signing everyone out. A string passes through untouched.
+ * Failures stay a plain { error } so the bridge can report them.
+ */
+function serve(objects) {
+	for (let name in keys(objects))
+		for (let method in keys(objects[name])) {
+			const m = objects[name][method];
+			const inner = m.call;
+			m.call = function(request) {
+				const r = inner(request);
+				if (type(r) == 'object' && type(r.error) == 'string') return { error: r.error };
+				return { json: sprintf('%J', r ?? {}) };
+			};
+		}
+	return objects;
+}
+
 // this ucode needs exports listed rather than marked inline
-export { paths, cursor, fail, shellquote, run, services, version, valid };
+export { serve, paths, cursor, fail, shellquote, run, services, version, valid };

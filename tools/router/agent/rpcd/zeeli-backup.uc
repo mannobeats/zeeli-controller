@@ -1,14 +1,14 @@
 // zeeli.backup: snapshots of /etc/config, and the full backup archive.
 'use strict';
 
-import { fail } from 'zeeli.common';
+import { fail, serve } from 'zeeli.common';
 import * as backup from 'zeeli.backup';
 import * as rollback from 'zeeli.rollback';
 import * as snapshots from 'zeeli.snapshots';
 
 const isId = (s) => type(s) == 'string' && match(s, /^s[0-9]+(-[0-9]+)?$/) != null;
 
-return {
+return serve({
 	'zeeli.backup': {
 		/** Snapshots, newest first, with how many the router keeps. */
 		list: {
@@ -105,4 +105,4 @@ return {
 			}
 		}
 	}
-};
+});

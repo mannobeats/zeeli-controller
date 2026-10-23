@@ -2,11 +2,13 @@
 // per-device speed limits. Calls go straight to lib/zeeli/policies.uc.
 'use strict';
 
+import { serve } from 'zeeli.common';
+
 import * as policies from 'zeeli.policies';
 
 const policyArgs = { name: 'name', enabled: true, who: [], what: {}, when: {}, until: 0, action: {}, tag: 'tag' };
 
-return {
+return serve({
 	'zeeli.policies': {
 		list: {
 			call: function() {
@@ -64,4 +66,4 @@ return {
 			}
 		}
 	}
-};
+});
