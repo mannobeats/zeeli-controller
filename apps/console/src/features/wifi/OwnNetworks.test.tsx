@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { isOwn, type OwnWifi, type OwnWifiInput } from '@zeeli/router-api';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { api } from '../../api/router.ts';
-import { confirmDialog, expectToast, renderPage, sheet } from '../../test/render.tsx';
+import { APPLYING, confirmDialog, expectToast, renderPage, sheet } from '../../test/render.tsx';
 import WifiPage from './WifiPage.tsx';
 
 afterEach(() => vi.restoreAllMocks());
@@ -121,7 +121,7 @@ test('a full radio can’t be picked, and says so', async () => {
   expect(s.getAllByText(/of 17 networks/, { selector: '.hint' }).length).toBe(3);
 });
 
-test('editing keeps the password unless one is typed, and can show the current one', async () => {
+test('editing keeps the password unless one is typed, and can show the current one', { timeout: APPLYING }, async () => {
   const user = await renderPage(<WifiPage />);
   await user.click(await rowOf('Kids'));
   const s = await sheet();

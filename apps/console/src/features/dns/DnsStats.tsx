@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/router.ts';
 import { errorMessage } from '../../lib/errors.ts';
+import { Figure } from '../../ui/Figure.tsx';
 import { Empty, Grid, Panel } from '../../ui/Layout.tsx';
 
 import { share, trimLeading, useDeviceName } from './names.ts';
@@ -54,16 +55,6 @@ export function DnsStats() {
         </Grid>
       </div>
     </>
-  );
-}
-
-function Figure({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'bad' }) {
-  return (
-    <div className="figure">
-      <span className="label">{label}</span>
-      <span className={`value num${tone ? ` tone-${tone}` : ''}`}>{value}</span>
-      {sub ? <span className="sub num">{sub}</span> : null}
-    </div>
   );
 }
 

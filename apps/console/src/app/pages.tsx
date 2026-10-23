@@ -18,6 +18,7 @@ const insights = () => import('../features/insights/pages.tsx');
 export const PAGE_COMPONENTS: Record<string, LazyExoticComponent<ComponentType>> = {
   dashboard: from(() => import('../features/dashboard/DashboardPage.tsx')),
   activity: from(() => import('../features/activity/ActivityPage.tsx')),
+  alerts: from(() => import('../features/alerts/AlertsPage.tsx')),
   topology: from(() => import('../features/topology/TopologyPage.tsx')),
   clients: from(() => import('../features/clients/ClientsPage.tsx')),
   traffic: from(insights, 'TrafficPage'),

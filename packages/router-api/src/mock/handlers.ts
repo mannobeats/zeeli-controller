@@ -1,5 +1,6 @@
 import { adguardHandlers } from './adguard-handlers.ts';
 import { agentSafety } from './agent-safety.ts';
+import { agentStats } from './agent-stats.ts';
 import { agentSystem } from './agent-system.ts';
 import { agentWifi } from './agent-wifi.ts';
 import { appsHandlers } from './apps-handlers.ts';
@@ -166,4 +167,5 @@ export const handlers: Record<string, Handler> = {
   ...agentSystem,
   ...agentWifi,
   ...agentSafety,
+  ...agentStats,
 };

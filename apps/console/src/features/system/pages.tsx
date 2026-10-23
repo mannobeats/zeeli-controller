@@ -15,6 +15,7 @@ import { Chip, Grid, KeyValues, Meter, Note, PageHeader, Panel, Stack } from '..
 import { Loaded } from '../../ui/Loading.tsx';
 import { SettingsForm, useForm } from '../../ui/SettingsForm.tsx';
 import { ConsoleUpdatePanel } from './ConsoleUpdate.tsx';
+import { SystemHistory } from './SystemHistory.tsx';
 
 const hm = (h: string | undefined, m: string | undefined) => `${(h ?? '00').padStart(2, '0')}:${(m ?? '00').padStart(2, '0')}`;
 const splitTime = (t: string) => {
@@ -32,6 +33,7 @@ export function DevicePage() {
         <RouterFacts />
         <HardwareSettings />
       </Grid>
+      <SystemHistory />
     </>
   );
 }
