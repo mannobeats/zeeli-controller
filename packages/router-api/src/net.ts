@@ -20,6 +20,46 @@ export const inSubnet = (ip: string, gateway: string, mask: string) => {
   return (toInt(ip) & m) === (toInt(gateway) & m);
 };
 
+const fromInt = (n: number) => [24, 16, 8, 0].map((s) => (n >>> s) & 255).join('.');
+const maskOf = (prefix: number) => (prefix ? (~0 << (32 - prefix)) >>> 0 : 0);
+
+/** A network as its first address and prefix length: 10.0.30.0/24. */
+export interface Cidr {
+  network: string;
+  prefix: number;
+}
+
+/** The network an address sits in: 10.0.30.1 with /24 (or 255.255.255.0) -> 10.0.30.0/24. */
+export function cidrOf(ip: string, prefixOrMask: number | string): Cidr {
+  const prefix = typeof prefixOrMask === 'number' ? prefixOrMask : maskToPrefix(prefixOrMask);
+  return { network: fromInt(toInt(ip) & maskOf(prefix)), prefix };
+}
+
+/** "10.0.30.0/24" -> Cidr; a bare address is a /32. Null when it isn't one. */
+export function parseCidr(v: string): Cidr | null {
+  const [ip = '', p] = v.trim().split('/');
+  const prefix = p === undefined ? 32 : Number(p);
+  if (!isIpv4(ip) || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) return null;
+  return cidrOf(ip, prefix);
+}
+
+export const cidrText = (c: Cidr) => `${c.network}/${c.prefix}`;
+
+/** Do two networks share any address? One inside the other counts. */
+export function overlaps(a: Cidr, b: Cidr): boolean {
+  const m = maskOf(Math.min(a.prefix, b.prefix));
+  return (toInt(a.network) & m) === (toInt(b.network) & m);
+}
+
+/** Usable host addresses in a network of this size: /24 -> 254. */
+export const hostCount = (prefix: number) => (prefix >= 31 ? 2 ** (32 - prefix) : 2 ** (32 - prefix) - 2);
+
+/** The `n`th address of a network, counting from its first: (10.0.30.0/24, 1) -> 10.0.30.1. */
+export const nthAddress = (c: Cidr, n: number) => fromInt((toInt(c.network) + n) >>> 0);
+
+/** The last usable address: 10.0.30.0/24 -> 10.0.30.254. */
+export const lastHost = (c: Cidr) => fromInt(((toInt(c.network) | ~maskOf(c.prefix)) - 1) >>> 0);
+
 export interface Route {
   type: string;
   dst: string;

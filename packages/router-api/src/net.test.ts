@@ -1,5 +1,20 @@
 import { expect, test } from 'vitest';
-import { inSubnet, isIpv4, isMac, maskToPrefix, parseRoute, prefixToMask } from './net.ts';
+import {
+  type Cidr,
+  cidrOf,
+  cidrText,
+  hostCount,
+  inSubnet,
+  isIpv4,
+  isMac,
+  lastHost,
+  maskToPrefix,
+  nthAddress,
+  overlaps,
+  parseCidr,
+  parseRoute,
+  prefixToMask,
+} from './net.ts';
 
 test('netmasks', () => {
   expect(prefixToMask(24)).toBe('255.255.255.0');
@@ -31,4 +46,17 @@ test('routes', () => {
   expect(parseRoute('local 192.168.8.1 dev br-lan table local proto kernel scope host src 192.168.8.1')?.table).toBe('local');
   expect(parseRoute('100.64.0.0/10 dev tailscale0 table 52')?.dst).toBe('100.64.0.0/10');
   expect(parseRoute('   ')).toBeNull();
+});
+
+test('subnet helpers find networks, overlaps and their addresses', () => {
+  const lab = cidrOf('10.0.30.1', '255.255.255.0');
+  expect(cidrText(lab)).toBe('10.0.30.0/24');
+  expect(overlaps(lab, parseCidr('10.0.0.0/16') as Cidr)).toBe(true);
+  expect(overlaps(lab, parseCidr('10.0.31.0/24') as Cidr)).toBe(false);
+  expect(overlaps(parseCidr('100.64.0.0/10') as Cidr, parseCidr('100.95.118.113') as Cidr)).toBe(true);
+  expect(parseCidr('10.0.0.0/33')).toBeNull();
+  expect(hostCount(24)).toBe(254);
+  expect(nthAddress(lab, 6)).toBe('10.0.30.6');
+  expect(lastHost(lab)).toBe('10.0.30.254');
+  expect(lastHost(parseCidr('192.168.8.0/22') as Cidr)).toBe('192.168.11.254');
 });
