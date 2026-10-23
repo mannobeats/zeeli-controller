@@ -1,15 +1,6 @@
 import { IconPlus } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  inSubnet,
-  isIpv4,
-  isMac,
-  maskToPrefix,
-  type Network,
-  type NetworkInput,
-  type Reservation,
-  type WanAccess,
-} from '@zeeli/router-api';
+import { inSubnet, isIpv4, isMac, maskToPrefix, type Network, type Reservation } from '@zeeli/router-api';
 import { useState } from 'react';
 import { useClients, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
@@ -18,25 +9,11 @@ import { plural } from '../../lib/format.ts';
 import { Button } from '../../ui/Button.tsx';
 import { DataTable } from '../../ui/DataTable.tsx';
 import { useFeedback } from '../../ui/feedback.tsx';
-import { Row2, SelectField, SwitchRow, TextField } from '../../ui/fields.tsx';
+import { SelectField, TextField } from '../../ui/fields.tsx';
 import { Empty, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
-import { formValues, type NetworkFormValues, toNetworkInput } from './form.ts';
-
-const ACCESS: [WanAccess, string][] = [
-  [0, 'Internet and upstream network'],
-  [1, 'Internet only, block upstream network'],
-  [2, 'No internet, local only'],
-];
-const LEASES: [string, string][] = [
-  ['1h', '1 hour'],
-  ['6h', '6 hours'],
-  ['12h', '12 hours'],
-  ['24h', '1 day'],
-  ['48h', '2 days'],
-  ['168h', '1 week'],
-];
+import { NetworkSheet } from './NetworkSheet.tsx';
 
 export default function NetworksPage() {
   const query = useQuery({
@@ -153,7 +130,7 @@ export default function NetworksPage() {
               <Empty>No reserved addresses. Reserve one so a device always gets the same IP.</Empty>
             )}
           </Panel>
-          <NetworkSheet network={editing} onClose={() => setEditing(null)} />
+          <NetworkSheet network={editing} networks={networks} reservations={reservations} onClose={() => setEditing(null)} />
           <ReservationSheet
             reservation={reserving}
             networks={networks}
@@ -167,128 +144,6 @@ export default function NetworksPage() {
         </>
       )}
     </Loaded>
-  );
-}
-
-function NetworkSheet({ network, onClose }: { network: Network | 'new' | null; onClose: () => void }) {
-  if (network === null) return null;
-  const n = network === 'new' ? null : network;
-  return <NetworkForm key={n?.id ?? 'new'} network={n} onDone={onClose} />;
-}
-
-function sheetSub(network: Network | null) {
-  if (!network) return 'A separate subnet on its own VLAN';
-  return network.id === 'main' ? 'Your main network. Changing its IP moves the router’s own address.' : undefined;
-}
-
-function NetworkForm({ network, onDone }: { network: Network | null; onDone: () => void }) {
-  const { toast, confirm } = useFeedback();
-  const main = network?.id === 'main';
-  const fixed = network?.fixed ?? false;
-  const [v, setV] = useState(() => formValues(network));
-  const set =
-    <K extends keyof NetworkFormValues>(k: K) =>
-    (value: NetworkFormValues[K]) =>
-      setV((x) => ({ ...x, [k]: value }));
-  const save = useWrite((input: NetworkInput) => api.networks.save(input, network ?? undefined), [['networks-page'], ['networks']]);
-  const remove = useWrite(() => api.networks.remove(network?.id ?? ''), [['networks-page'], ['networks']]);
-
-  async function submit() {
-    const input = toNetworkInput(v, network);
-    if (main && network && v.ip !== network.ip) {
-      const ok = await confirm({
-        title: 'Move the router to a new address?',
-        body: `The router moves from ${network.ip} to ${v.ip}. Devices reconnect, and you’ll open this console at the new address.`,
-        confirm: 'Change address',
-        danger: false,
-      });
-      if (!ok) return false;
-    }
-    await save.mutateAsync(input);
-    toast(network ? `Saved ${input.label || network.label}` : `Created ${input.label}`);
-    onDone();
-  }
-
-  async function deleteNetwork() {
-    if (!network) return;
-    if (
-      !(await confirm({
-        title: `Delete ${network.label}?`,
-        body: 'Devices on it lose their connection, and its VLAN stops working on every port.',
-        confirm: 'Delete network',
-      }))
-    )
-      return;
-    try {
-      await remove.mutateAsync(undefined);
-      toast(`Deleted ${network.label}`);
-      onDone();
-    } catch (err) {
-      toast(`Couldn’t delete: ${errorMessage(err)}`);
-    }
-  }
-
-  return (
-    <Sheet
-      open
-      onOpenChange={(o) => !o && onDone()}
-      title={network ? network.label : 'New network'}
-      sub={sheetSub(network)}
-      save={network ? 'Save' : 'Create network'}
-      danger={network && !fixed ? { label: 'Delete network', onClick: deleteNetwork } : undefined}
-      onSave={submit}
-    >
-      {fixed ? null : <TextField label="Name" value={v.label} onChange={set('label')} placeholder="Cameras" required />}
-      {fixed && !main ? <SwitchRow label="Network on" checked={v.enabled} onChange={set('enabled')} /> : null}
-      <Row2>
-        <TextField label="Gateway IP" mono inputMode="decimal" value={v.ip} onChange={set('ip')} placeholder="10.0.20.1" />
-        <TextField label="Netmask" mono inputMode="decimal" value={v.netmask} onChange={set('netmask')} />
-      </Row2>
-      {main ? null : (
-        <>
-          <TextField
-            label="VLAN ID"
-            inputMode="numeric"
-            value={v.vlanId}
-            onChange={set('vlanId')}
-            hint="2 to 4094. Tag this ID on switch ports to carry the network."
-          />
-          <SelectField label="Internet access" value={v.wanAccess} options={ACCESS} onChange={set('wanAccess')} />
-        </>
-      )}
-      <SwitchRow
-        label="Isolate clients"
-        hint="Devices on this network can’t reach each other"
-        checked={v.isolate}
-        onChange={set('isolate')}
-      />
-      <DhcpFields v={v} set={set} />
-    </Sheet>
-  );
-}
-
-function DhcpFields({
-  v,
-  set,
-}: {
-  v: NetworkFormValues;
-  set: <K extends keyof NetworkFormValues>(k: K) => (value: NetworkFormValues[K]) => void;
-}) {
-  const leases = LEASES.some(([k]) => k === v.leaseTime) ? LEASES : ([[v.leaseTime, v.leaseTime], ...LEASES] as [string, string][]);
-  return (
-    <>
-      <h3>DHCP</h3>
-      <SwitchRow label="Hand out addresses" checked={v.dhcp} onChange={set('dhcp')} />
-      <Row2>
-        <TextField label="First address" mono inputMode="decimal" value={v.dhcpStart} onChange={set('dhcpStart')} />
-        <TextField label="Last address" mono inputMode="decimal" value={v.dhcpEnd} onChange={set('dhcpEnd')} />
-      </Row2>
-      <SelectField label="Lease time" value={v.leaseTime} options={leases} onChange={set('leaseTime')} />
-      <Row2>
-        <TextField label="DNS server 1" mono inputMode="decimal" value={v.dns1} onChange={set('dns1')} placeholder="Router" />
-        <TextField label="DNS server 2" mono inputMode="decimal" value={v.dns2} onChange={set('dns2')} placeholder="None" />
-      </Row2>
-    </>
   );
 }
 

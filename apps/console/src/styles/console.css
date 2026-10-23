@@ -361,3 +361,7 @@ body:has(.bulk-bar) .toast { bottom: 80px; }
   .share-qr { width: 9cm; border: 0; }
   .share-card .link { display: none; }
 }
+
+/* a folded-away group of fields */
+.adv > summary { cursor: pointer; font-size: var(--t-13); font-weight: 600; color: var(--ink-2); }
+.adv-body { display: grid; gap: 14px; margin-top: 14px; }

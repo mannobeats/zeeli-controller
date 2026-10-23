@@ -20,6 +20,9 @@ export const inSubnet = (ip: string, gateway: string, mask: string) => {
   return (toInt(ip) & m) === (toInt(gateway) & m);
 };
 
+/** 10.0.0.1 -> 167772161, for comparing addresses. */
+export const ipToInt = toInt;
+
 const fromInt = (n: number) => [24, 16, 8, 0].map((s) => (n >>> s) & 255).join('.');
 const maskOf = (prefix: number) => (prefix ? (~0 << (32 - prefix)) >>> 0 : 0);
 
