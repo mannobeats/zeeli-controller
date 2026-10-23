@@ -149,15 +149,13 @@ body:has(.bulk-bar) .toast { bottom: 80px; }
 .topo-ports li.up { border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: var(--ok-soft); color: var(--ok); }
 /* a device's traffic, as a bar along the foot of its card */
 .topo-node.device { position: relative; overflow: hidden; }
-.topo-eq { flex: none; display: inline-flex; align-items: flex-end; gap: 1.5px; block-size: 18px; margin-right: -2px; }
-.topo-eq i { inline-size: 2.5px; min-block-size: 3px; border-radius: 2px; background: var(--cat, var(--brand)); transform-origin: bottom; transition: block-size .6s var(--ease, ease); animation: topo-eq 1.1s ease-in-out infinite alternate; }
-.topo-eq i:nth-child(2) { animation-duration: .8s; animation-delay: -.3s; }
-.topo-eq i:nth-child(3) { animation-duration: 1.3s; animation-delay: -.6s; }
-.topo-eq i:nth-child(4) { animation-duration: .9s; animation-delay: -.2s; }
-.topo-eq i:nth-child(5) { animation-duration: 1.2s; animation-delay: -.5s; }
-.topo-eq.idle i { animation: none; opacity: .45; }
-@keyframes topo-eq { from { transform: scaleY(.55); } to { transform: scaleY(1); } }
-@media (prefers-reduced-motion: reduce) { .topo-eq i { animation: none; } }
+.topo-ring { position: relative; flex: none; display: grid; place-items: center; inline-size: 30px; block-size: 30px; color: var(--ink-3); }
+.topo-ring .gauge { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; transform: rotate(-90deg); overflow: visible; }
+.topo-ring circle { fill: none; stroke-width: 2; }
+.topo-ring .track { stroke: var(--line); }
+.topo-ring .fill { stroke: var(--cat, var(--brand)); stroke-linecap: round; transition: stroke-dasharray .8s var(--ease, ease); }
+.topo-ring.busy { color: var(--ink-2); }
+.topo-ring.busy .fill { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--cat, var(--brand)) 70%, transparent)); }
 .topo-node.device.offline b { color: var(--ink-3); }
 .topo-net { width: 100%; height: 100%; border-radius: var(--radius-lg); border: 1px solid var(--line-strong); background: color-mix(in srgb, var(--fill) 60%, transparent); }
 .topo-net-head { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; padding: 16px 16px 0; }

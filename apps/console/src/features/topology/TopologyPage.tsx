@@ -16,7 +16,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useQuery } from '@tanstack/react-query';
 import { type Client, inSubnet, type Network, UPLINKS } from '@zeeli/router-api';
-import { memo, useMemo, useState } from 'react';
+import { memo, type ReactNode, useMemo, useState } from 'react';
 import { useClients, useInfo, useStatus } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { navigate } from '../../app/useHashRoute.ts';
@@ -183,20 +183,22 @@ const CoreNode = memo(function CoreNode({ data }: NodeProps<Node<CoreData, 'core
   );
 });
 
-/** The meter's bars, tallest in the middle, like an equaliser at rest. */
-const BARS = [0.55, 0.8, 1, 0.75, 0.5];
-
 /**
- * Five bars that rise with the device's traffic and keep moving while it flows, so a busy device
- * reads at a glance across the map. An idle device's bars sit low and still.
+ * The device's icon inside a ring that fills with its traffic, like a gauge: an arc from the top,
+ * clockwise, in its connection's colour, glowing once the device is busy. Idle devices show an
+ * empty track; offline ones no ring at all.
  */
-function LevelMeter({ share }: { share: number }) {
+function TrafficRing({ share, children }: { share: number | null; children: ReactNode }) {
+  const level = share === null ? 0 : Math.max(0.04, share);
   return (
-    <span className={`topo-eq${share < 0.05 ? ' idle' : ''}`} aria-hidden>
-      {BARS.map((b, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: the bars are fixed and never reorder
-        <i key={i} style={{ blockSize: `${Math.round(Math.max(0.16, share * b) * 100)}%` }} />
-      ))}
+    <span className={`topo-ring${share !== null && share >= 0.35 ? ' busy' : ''}`}>
+      {share === null ? null : (
+        <svg className="gauge" viewBox="0 0 36 36" aria-hidden>
+          <circle className="track" cx="18" cy="18" r="16" pathLength={100} />
+          <circle className="fill" cx="18" cy="18" r="16" pathLength={100} strokeDasharray={`${level * 100} 100`} />
+        </svg>
+      )}
+      {children}
     </span>
   );
 }
@@ -207,7 +209,9 @@ const DeviceNode = memo(function DeviceNode({ data }: NodeProps<Node<DeviceData,
   const link = data.port ? `${c.link.label} · ${data.port}` : c.link.label;
   return (
     <div className={`topo-node device cat-${data.category}${c.online ? '' : ' offline'}`}>
-      <I size={18} stroke={1.75} />
+      <TrafficRing share={c.online ? meterShare(c.rx + c.tx) : null}>
+        <I size={16} stroke={1.75} />
+      </TrafficRing>
       <div>
         <b>{c.name}</b>
         <span className="conn">
@@ -217,8 +221,6 @@ const DeviceNode = memo(function DeviceNode({ data }: NodeProps<Node<DeviceData,
           {c.online ? <span className="rate">{rateText(c.rx + c.tx)}</span> : null}
         </span>
       </div>
-      {/* traffic as a live level meter beside the rate, instead of a wire across the map */}
-      {c.online ? <LevelMeter share={meterShare(c.rx + c.tx)} /> : null}
     </div>
   );
 });
