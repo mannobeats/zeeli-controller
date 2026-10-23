@@ -4,7 +4,7 @@
 // the service keeps nothing in memory. Slots are hex numbers of a fixed width; `-` marks
 // "no sample", which is different from a measured zero.
 //
-//   header (96 bytes)  ZRING1 <layout> <last minute> <last hour> <last day>
+//   header (96 bytes)  ZRING2 <layout> <last minute> <last hour> <last day>
 //   minute slots       1440 × slot width
 //   hour slots         720 × slot width
 //   day slots          365 × slot width
@@ -13,7 +13,7 @@
 // caller passes the timezone offset), so a daily bar is a day on the owner's wall clock.
 'use strict';
 
-import { open } from 'fs';
+import { open, readfile, rename, stat, writefile } from 'fs';
 
 const TIERS = [
 	{ name: 'min', step: 60, n: 1440 },
@@ -30,7 +30,8 @@ const HEAD = 96;
  * devices there are. Gauges are refolded from the finer ring.
  */
 const LAYOUTS = {
-	traffic: { w: 10, incremental: true, fields: [{ name: 'down', agg: 'sum', scale: 1 }, { name: 'up', agg: 'sum', scale: 1 }] },
+	// 12 hex digits hold 281 TB a slot; the first release used 10 (1.1 TB), see `widen`
+	traffic: { w: 12, incremental: true, fields: [{ name: 'down', agg: 'sum', scale: 1 }, { name: 'up', agg: 'sum', scale: 1 }] },
 	system: {
 		w: 4,
 		fields: [
@@ -131,16 +132,17 @@ function base(lay, ti) {
 	return at;
 }
 
+/** ZRING1 files are the first release's: the same, except a traffic slot was 10 digits wide. */
 function readHead(f) {
 	f.seek(0);
 	const p = split(trim(f.read(HEAD) ?? ''), ' ');
-	if (p[0] != 'ZRING1' || !LAYOUTS[p[1]]) return null;
-	return { layout: p[1], last: [int(p[2]), int(p[3]), int(p[4])] };
+	if ((p[0] != 'ZRING1' && p[0] != 'ZRING2') || !LAYOUTS[p[1]]) return null;
+	return { layout: p[1], last: [int(p[2]), int(p[3]), int(p[4])], legacy: p[0] == 'ZRING1' && p[1] == 'traffic' };
 }
 
 function writeHead(f, layout, last) {
 	f.seek(0);
-	f.write(sprintf('%-95s\n', `ZRING1 ${layout} ${last[0]} ${last[1]} ${last[2]}`));
+	f.write(sprintf('%-95s\n', `ZRING2 ${layout} ${last[0]} ${last[1]} ${last[2]}`));
 }
 
 /** The text of `count` consecutive slots starting at slot number `from`, wrapping round the ring. */
@@ -168,6 +170,38 @@ function rawWrite(f, lay, ti, from, text) {
 	}
 }
 
+/** Rewrite a first-release traffic file with 12-digit slots, keeping every value. */
+function widen(path) {
+	const text = readfile(path);
+	if (text == null) return false;
+	const p = split(trim(substr(text, 0, HEAD)), ' ');
+	const pad = repeat('0', 2), blank = repeat('-', 12);
+	let out = sprintf('%-95s\n', `ZRING2 traffic ${p[2]} ${p[3]} ${p[4]}`);
+	for (let i = HEAD; i < length(text); i += 10) {
+		const field = substr(text, i, 10);
+		out += substr(field, 0, 1) == '-' ? blank : pad + field;
+	}
+	writefile(`${path}.tmp`, out);
+	return rename(`${path}.tmp`, path);
+}
+
+/** Open a history file with its header read, upgrading an old-format file first. */
+function openRing(path, mode) {
+	let f = open(path, mode);
+	if (!f) return null;
+	let head = readHead(f);
+	if (head?.legacy) {
+		f.close();
+		f = widen(path) ? open(path, mode) : null;
+		head = f ? readHead(f) : null;
+	}
+	if (!head) {
+		f?.close();
+		return null;
+	}
+	return { f, head };
+}
+
 /** Create an empty history file, every slot "no sample". */
 function create(path, layout) {
 	const lay = LAYOUTS[layout];
@@ -193,17 +227,13 @@ function advance(f, lay, ti, last, s) {
  */
 function put(path, layout, t, values, off) {
 	const lay = LAYOUTS[layout];
-	let f = open(path, 'r+');
-	if (!f) {
-		if (!create(path, layout)) return false;
-		f = open(path, 'r+');
-		if (!f) return false;
-	}
-	const head = readHead(f);
-	if (!head || head.layout != layout) {
-		f.close();
+	if (!stat(path) && !create(path, layout)) return false;
+	const opened = openRing(path, 'r+');
+	if (!opened || opened.head.layout != layout) {
+		opened?.f.close();
 		return false;
 	}
+	const f = opened.f, head = opened.head;
 	const last = head.last;
 	const m = slotOf(0, t, off), h = slotOf(1, t, off);
 	let d = slotOf(2, t, off);
@@ -245,13 +275,9 @@ function put(path, layout, t, values, off) {
  * there is no sample) as the stored integers. `start` is the time of the first row.
  */
 function read(path, ti, now, off) {
-	const f = open(path, 'r');
-	if (!f) return null;
-	const head = readHead(f);
-	if (!head) {
-		f.close();
-		return null;
-	}
+	const opened = openRing(path, 'r');
+	if (!opened) return null;
+	const f = opened.f, head = opened.head;
 	const lay = LAYOUTS[head.layout], n = TIERS[ti].n, last = head.last[ti];
 	const end = slotOf(ti, now, off) > last ? slotOf(ti, now, off) : last;
 	const text = rawRead(f, lay, ti, 0, n);

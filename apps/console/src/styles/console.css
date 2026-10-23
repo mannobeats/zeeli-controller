@@ -309,3 +309,5 @@ body:has(.bulk-bar) .toast { bottom: 80px; }
 .pol-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: var(--t-13); }
 .page-note { margin: 0; color: var(--ink-3); font-size: var(--t-13); }
 .page-note .link { font-size: inherit; }
+.tl-link { border: 0; background: none; padding: 0; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.tl-link:hover { color: var(--brand); }

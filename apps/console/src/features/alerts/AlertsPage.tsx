@@ -62,7 +62,7 @@ function EventList({ events, onAck }: { events: HistoryEvent[]; onAck?: (e: Hist
               <Icon size={16} stroke={1.75} />
             </span>
             <div className="tl-body">
-              <button type="button" className="link" onClick={() => navigate(eventLink(e))}>
+              <button type="button" className="tl-link" onClick={() => navigate(eventLink(e))}>
                 {eventText(e, nameOf)}
               </button>
             </div>

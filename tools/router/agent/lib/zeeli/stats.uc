@@ -349,27 +349,62 @@ function status() {
 
 const COPIED = /\.(ring|jsonl|json)$/;
 
-/** Copy the history to flash. The new copy is built beside the old one and swapped in. */
+const BLOCK = 4096;
+
+/**
+ * Bring the flash copy of one file up to `want`, writing only the 4 KB blocks that differ, and
+ * return the bytes written. A ring file changes a few slots a minute, so a 15 minute save
+ * touches its header and three small spots, not the whole 60 KB. The header block goes last,
+ * so a save cut short leaves a file whose pointers still describe slots that are there.
+ */
+function patch(path, want) {
+	const have = readfile(path);
+	if (have == null || length(have) != length(want)) {
+		writefile(path, want);
+		return length(want);
+	}
+	if (have == want) return 0;
+	const f = open(path, 'r+');
+	if (!f) return 0;
+	const starts = [];
+	for (let at = BLOCK; at < length(want); at += BLOCK) push(starts, at);
+	push(starts, 0);
+	let wrote = 0;
+	for (let at in starts) {
+		const chunk = substr(want, at, BLOCK);
+		if (chunk == substr(have, at, BLOCK)) continue;
+		f.seek(at);
+		f.write(chunk);
+		wrote += length(chunk);
+	}
+	f.close();
+	return wrote;
+}
+
+/**
+ * Copy the history to flash: only what changed since the last save, and only the changed
+ * blocks of a file. Returns { wrote, total } in bytes, or null if there's nowhere to save.
+ */
 function persist() {
-	const to = flashDir(), parent = dirname(to);
-	if (!stat(parent)) return false;
-	const stage = `${to}.new`;
-	rmrf(stage);
-	if (!mkdirp(stage)) return false;
-	let bytes = 0;
-	for (let name in lsdir(dir()) ?? []) {
-		if (!match(name, COPIED) || name == 'status.json') continue;
+	const to = flashDir();
+	if (!stat(dirname(to)) || !mkdirp(to)) return null;
+	// leftovers of the first release, which rebuilt the whole copy each time
+	rmrf(`${to}.new`);
+	rmrf(`${to}.old`);
+	const names = filter(lsdir(dir()) ?? [], (n) => match(n, COPIED) && n != 'status.json');
+	let total = 0, wrote = 0;
+	for (let name in names) {
 		const text = readfile(`${dir()}/${name}`);
 		if (text == null) continue;
-		writefile(`${stage}/${name}`, text);
-		bytes += length(text);
+		total += length(text);
+		wrote += patch(`${to}/${name}`, text);
 	}
-	writefile(`${stage}/meta.json`, sprintf('%J', { at: time(), bytes }));
-	rmrf(`${to}.old`);
-	if (stat(to)) rename(to, `${to}.old`);
-	const ok = rename(stage, to);
-	rmrf(`${to}.old`);
-	return ok;
+	// history that was pruned is dropped from flash too
+	for (let name in lsdir(to) ?? [])
+		if (match(name, COPIED) && name != 'meta.json' && !(name in names)) unlink(`${to}/${name}`);
+	const meta = sprintf('%J', { at: time(), bytes: total, wrote });
+	writefile(`${to}/meta.json`, meta);
+	return { wrote: wrote + length(meta), total };
 }
 
 /** After a reboot RAM is empty: bring the saved history back. Does nothing if there's history already. */

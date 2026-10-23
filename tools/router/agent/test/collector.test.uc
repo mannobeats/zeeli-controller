@@ -150,6 +150,37 @@ test('history survives a reboot: saved to flash, restored into empty RAM', () =>
 	ok(!stats.restore());
 });
 
+test('saving to flash writes only what changed', () => {
+	const st = fresh();
+	const a = '0E:00:00:00:00:01', b = '0E:00:00:00:00:02';
+	const at = (m, down) => snap(m, { clients: [client(a, '192.168.8.10', down, 1), client(b, '192.168.8.11', down, 1, m < 2)] });
+	collector.tick(st, at(0, 100), CFG);
+	collector.tick(st, at(1, 200), CFG);
+	const first = stats.persist();
+	ok(first.wrote > 100000, `the first save writes everything (${first.wrote} bytes)`);
+	// nothing happened: only the small meta file changes
+	ok(stats.persist().wrote < 200);
+	// one device had a minute; the other file is untouched
+	collector.tick(st, at(2, 300), CFG);
+	const again = stats.persist();
+	ok(again.wrote < 40000, `${again.wrote} bytes for one more minute of one device`);
+	ok(again.wrote < first.wrote / 3);
+	// and the copy is right: restore it into empty RAM and read the totals
+	for (let name in lsdir(stats.dir())) unlink(`${stats.dir()}/${name}`);
+	ok(stats.restore());
+	eq(points('client', a, '12m').totals.down, 200);
+});
+
+test('history pruned from RAM is dropped from flash on the next save', () => {
+	const st = fresh();
+	collector.tick(st, snap(0, { clients: [client('0F:00:00:00:00:01', '192.168.8.10', 1, 1)] }), CFG);
+	collector.tick(st, snap(1, { clients: [client('0F:00:00:00:00:01', '192.168.8.10', 2, 1)] }), CFG);
+	stats.persist();
+	unlink(stats.ringPath('client', '0f-00-00-00-00-01'));
+	stats.persist();
+	eq(filter(lsdir(stats.flashDir()), (n) => index(n, 'client.') == 0), []);
+});
+
 test('the event list is bounded', () => {
 	for (let i = 1; i <= stats.MAX_EVENTS + 120; i++) stats.addEvent({ id: 10000 + i, t: T0 + i, kind: 'wan.up', subject: 'wan', name: '', value: null, alert: false });
 	const n = length(readfile(`${stats.dir()}/events.jsonl`) ? split(trim(readfile(`${stats.dir()}/events.jsonl`)), '\n') : []);
