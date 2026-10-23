@@ -14,7 +14,7 @@ set -e
 T=$(mktemp -d /tmp/zeeli-test.XXXXXX)
 trap "rm -rf $T" EXIT
 tar -C "$T" -xf -
-export ZEELI_AGENT="$T" ZEELI_CONFDIR="$T/config" ZEELI_SAVEDIR="$T/save" ZEELI_SHARE="$T/share" ZEELI_STATE="$T/state"
+export ZEELI_AGENT="$T" ZEELI_CONFDIR="$T/config" ZEELI_SAVEDIR="$T/save" ZEELI_SHARE="$T/share" ZEELI_STATE="$T/state" ZEELI_AVAHI="$T/avahi-daemon.conf"
 status=0
 for t in "$T"/test/*.test.uc; do
   rm -rf "$T/config" "$T/save" "$T/share" "$T/state"

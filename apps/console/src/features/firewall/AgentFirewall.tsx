@@ -12,7 +12,9 @@ import { Chip, KeyValues, Note, PageHeader, Panel } from '../../ui/Layout.tsx';
 import { Loaded } from '../../ui/Loading.tsx';
 import { moved } from '../../ui/reorder.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
+import { AccessGrid } from './AccessGrid.tsx';
 import { masqueradeColumn, ruleColumns, zonePolicyColumns } from './columns.tsx';
+import { Discovery } from './Discovery.tsx';
 import { ORIGIN, TARGETS, zoneLabel } from './labels.ts';
 import { Policy, RuleSheet } from './shared.tsx';
 
@@ -83,7 +85,7 @@ export function AgentFirewall() {
 
   return (
     <Loaded query={query} title="Firewall rules">
-      {({ zones, forwardings, rules, networks }) => (
+      {({ zones, forwardings, rules, networks, mdns }) => (
         <>
           <PageHeader
             title="Firewall rules"
@@ -95,9 +97,11 @@ export function AgentFirewall() {
             }
           />
           <Banner status={status} dismiss={dismiss} />
+          <AccessGrid zones={zones} forwardings={forwardings} apply={apply} />
           <ZonesPanel zones={zones} onOpen={setZone} />
           <ForwardingsPanel forwardings={forwardings} onAdd={() => setForwarding(true)} act={act} />
           <RulesPanel rules={rules} onOpen={setRule} act={act} />
+          <Discovery zones={zones} status={mdns} apply={apply} />
           {zone ? <ZoneSheet key={zone.name} zone={zone} networks={networks} onClose={() => setZone(null)} apply={apply} /> : null}
           {forwarding ? <ForwardingSheet zones={zones} onClose={() => setForwarding(false)} apply={apply} /> : null}
           {rule ? (

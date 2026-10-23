@@ -12,6 +12,8 @@ const paths = {
 	share: getenv('ZEELI_SHARE') ?? '/usr/share/zeeli',
 	/** Runtime state that doesn't belong in UCI (history, caches). Tests use a sandbox. */
 	state: getenv('ZEELI_STATE') ?? '/var/lib/zeeli',
+	/** avahi's config, which the mDNS reflector setting edits. Tests use a sandbox. */
+	avahi: getenv('ZEELI_AVAHI') ?? '/etc/avahi/avahi-daemon.conf',
 };
 
 /** A UCI cursor on the router's settings, or on the test sandbox. */

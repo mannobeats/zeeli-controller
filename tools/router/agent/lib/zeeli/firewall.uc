@@ -12,6 +12,7 @@
 
 import { cursor, fail } from 'zeeli.common';
 import { abandon, admin, begin, discard } from 'zeeli.rollback';
+import { configure, status as mdnsFile } from 'zeeli.mdns';
 import { reloader } from 'zeeli.snapshots';
 
 const POLICY = ['ACCEPT', 'REJECT', 'DROP'];
@@ -439,5 +440,114 @@ function rule_move(a) {
 	});
 }
 
+/* ---------- access between networks (the grid) ---------- */
+
+const GRID_MAX = 400;
+
+/** The zones the grid covers: not the router services’, and not the internet side. */
+const gridZone = (z) => z != null && owner(z) != 'service' && z.masq != '1';
+
+/**
+ * Whether each cell lets a zone start connections to another: one zone forwarding when it does,
+ * none when it doesn’t. Replies to connections the other side started always come back, which is
+ * all “replies only” is. Forwardings never touch the zone’s input, so a cell can’t shut anything
+ * out of the router itself; the check below only refuses to write on top of a firewall where the
+ * admin zone already can’t reach it.
+ */
+function adminStays(all) {
+	const lz = lanZone(all);
+	if (lz && ((lz.input ?? 'ACCEPT') != 'ACCEPT' || index(words(lz.network), 'lan') < 0))
+		return fail(`${zoneName(lz)} doesn’t accept traffic to the router. Fix that in its zone settings before changing what networks can reach.`);
+	return null;
+}
+
+function cellProblem(all, cell) {
+	if (type(cell) != 'object' || type(cell.allow) != 'bool') return fail('Each change needs a from network, a to network and allowed or blocked.');
+	const from = filter(sectionsOf(all, 'zone'), (z) => z.name == cell.src)[0];
+	const to = filter(sectionsOf(all, 'zone'), (z) => z.name == cell.dest)[0];
+	if (!from || !to) return fail('Pick two networks that exist.');
+	if (from.name == to.name) return fail('A network always reaches itself.');
+	if (!gridZone(from) || !gridZone(to)) return fail('Internet access and router services aren’t part of this grid.');
+	return null;
+}
+
+function access_apply(a) {
+	if (type(a.cells) != 'array' || !length(a.cells) || length(a.cells) > GRID_MAX) return fail('Pick at least one change.');
+	return write('changing which networks can reach each other', (c, all) => {
+		const stop = adminStays(all);
+		if (stop) return stop;
+		let changed = 0;
+		for (let cell in a.cells) {
+			const bad = cellProblem(all, cell);
+			if (bad) return bad;
+			const found = filter(sectionsOf(all, 'forwarding'), (f) => f.src == cell.src && f.dest == cell.dest);
+			if (cell.allow && !length(found)) {
+				const sid = c.add('firewall', 'forwarding');
+				c.set('firewall', sid, 'src', cell.src);
+				c.set('firewall', sid, 'dest', cell.dest);
+				changed++;
+			}
+			for (let f in found) {
+				if (owner(f) == 'service') return fail('That connection was made by a router service. Change it from that service.');
+				if (!cell.allow) c.delete('firewall', f['.name']);
+				else if (f.enabled == '0') c.set('firewall', f['.name'], 'enabled', '1');
+				else continue;
+				changed++;
+			}
+		}
+		return changed ? { changed } : { noop: true, changed: 0 };
+	});
+}
+
+/* ---------- finding devices across networks (mDNS) ---------- */
+
+const MDNS_RULE = /^zeeli_mdns_/;
+
+/** The bridge or port a zone’s networks use, which avahi is told to listen on. */
+function zoneDevices(c, z) {
+	return filter(map(words(z.network), (n) => c.get('network', n, 'device')), (d) => d != null && substr(d, 0, 1) != '@');
+}
+
+function mdns_status() {
+	const all = cursor().get_all('firewall') ?? {};
+	const zonesOn = map(filter(keys(all), (k) => match(k, MDNS_RULE)), (k) => all[k].src);
+	const file = mdnsFile();
+	return { available: file.installed, enabled: file.reflecting && length(zonesOn) > 0, zones: zonesOn };
+}
+
+function mdnsZones(c, all, names) {
+	if (type(names) != 'array' || length(names) < 2) return fail('Pick at least two networks to share devices between.');
+	const picked = [];
+	for (let n in uniq(names)) {
+		const z = filter(sectionsOf(all, 'zone'), (s) => s.name == n)[0];
+		if (!gridZone(z)) return fail(`${n} can’t share devices: it isn’t a network of yours.`);
+		if (!length(zoneDevices(c, z))) return fail(`${n} has no network to listen on.`);
+		push(picked, z);
+	}
+	return length(picked) < 2 ? fail('Pick at least two networks to share devices between.') : picked;
+}
+
+function mdns_set(a) {
+	if (type(a.enabled) != 'bool') return fail('Turn device discovery on or off.');
+	if (!mdnsFile().installed) return fail('This router has no mDNS reflector (avahi-daemon) installed.');
+	let devices = null;
+	const out = write(a.enabled ? 'letting devices find each other across networks' : 'stopping devices finding each other across networks', (c, all) => {
+		for (let k in keys(all)) if (match(k, MDNS_RULE)) c.delete('firewall', k);
+		if (!a.enabled) return {};
+		const picked = mdnsZones(c, all, a.zones);
+		if (picked.error) return picked;
+		devices = [];
+		for (let z in picked) {
+			const sid = `zeeli_mdns_${replace(z.name, /[^A-Za-z0-9_]/g, '_')}`;
+			c.set('firewall', sid, 'rule');
+			for (let o, v in { name: `Zeeli mDNS from ${z.name}`, src: z.name, proto: 'udp', dest_port: '5353', target: 'ACCEPT', zeeli: '1' }) c.set('firewall', sid, o, v);
+			push(devices, ...zoneDevices(c, z));
+		}
+		return {};
+	});
+	if (out.error || out.noop) return out;
+	return configure(devices ? uniq(devices) : null) ? out : fail('The router wouldn’t let Zeeli change the avahi settings, so the change will undo itself.');
+}
+
 // this ucode needs exports listed rather than marked inline
-export { zones, networks, forwardings, rules, zone_update, forwarding_add, forwarding_remove, rule_add, rule_update, rule_enable, rule_delete, rule_move };
+export { zones, networks, forwardings, rules, zone_update, forwarding_add, forwarding_remove, rule_add, rule_update, rule_enable, rule_delete, rule_move, access_apply, mdns_status, mdns_set };

@@ -362,3 +362,8 @@ done
 ### Not done
 
 - `zeeli-update remove` takes the include and dnsmasq sections away but not the speed limits the agent set (`zeeli_applied`); see the lines in the report to add to it.
+
+## Network access grid and device discovery
+
+- **The grid** is `zeeli.firewall.access_apply({ cells: [{ src, dest, allow }] })`: many zone forwardings changed in one confirm-or-roll-back write. A cell is allowed when an enabled `forwarding` from the first zone to the second exists, blocked when none does. Replies to connections the other side started always come back (fw4 accepts established traffic first), so "replies only" is not a setting of its own: it is a blocked cell whose opposite cell is allowed. Forwardings never touch a zone's input, so no cell can cut a network off from the router. The write still refuses when the admin zone (the one holding `lan`) doesn't accept input. Zones with masquerade (the internet) and router services' zones are not part of the grid. Tests: `test/access.test.uc`.
+- **Device discovery** (`mdns_status`, `mdns_set`): GL's firmware already runs `avahi-daemon` with the reflector off. Turning it on writes `allow-interfaces=<bridges>` (after a `# zeeli` marker line) in `[server]` and `enable-reflector=yes` in `/etc/avahi/avahi-daemon.conf`, restarts avahi, and adds one fw4 rule per chosen zone, `zeeli_mdns_<zone>` (UDP 5353 to the router, `option zeeli '1'` so the rules page hides it). Turning it off takes all of that out. The avahi file isn't in `/etc/config`, so a rollback puts the rules back but leaves avahi as it is. `zeeli-update remove` deletes the rules, the marker and its line, sets the reflector off and restarts avahi.

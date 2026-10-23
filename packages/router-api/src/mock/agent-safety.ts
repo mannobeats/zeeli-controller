@@ -1,6 +1,16 @@
 // Demo answers for the agent's backup, firewall and ports areas, and for GL's mesh node
 // methods (mesh is off on the router these shapes were studied on). Invented values only.
-import type { AgentForwarding, AgentRule, AgentZone, PortProfile, PortsStatus, Snapshot, SnapshotChange } from '../domain/safety.ts';
+import type {
+  AccessCell,
+  AgentForwarding,
+  AgentRule,
+  AgentZone,
+  MdnsStatus,
+  PortProfile,
+  PortsStatus,
+  Snapshot,
+  SnapshotChange,
+} from '../domain/safety.ts';
 import type { Handler } from './handlers.ts';
 import { keep } from './more-handlers.ts';
 import type { MockState } from './seed.ts';
@@ -19,6 +29,7 @@ interface Fw {
   zones: AgentZone[];
   forwardings: AgentForwarding[];
   rules: AgentRule[];
+  mdns: MdnsStatus;
 }
 let seq = 100;
 
@@ -88,6 +99,7 @@ function seedFw(): Fw {
       { id: 'lan_tailscale', src: 'lan', dest: 'tailscale0', enabled: true, owner: 'service', editable: false },
     ],
     rules,
+    mdns: { available: true, enabled: false, zones: [] },
   };
 }
 
@@ -358,6 +370,16 @@ function networkProblem(f: Fw, zone: AgentZone, n: string) {
   return other ? `${n} is already in the ${other.name} zone. Take it out of there first.` : undefined;
 }
 
+const gridZone = (z?: AgentZone) => Boolean(z?.editable && !z.masquerade);
+function cellProblem(f: Fw, cell: AccessCell) {
+  const from = f.zones.find((z) => z.name === cell.src);
+  const to = f.zones.find((z) => z.name === cell.dest);
+  if (typeof cell.allow !== 'boolean') return 'Each change needs a from network, a to network and allowed or blocked.';
+  if (!from || !to) return 'Pick two networks that exist.';
+  if (from === to) return 'A network always reaches itself.';
+  return gridZone(from) && gridZone(to) ? undefined : 'Internet access and router services aren’t part of this grid.';
+}
+
 const firewall: Record<string, Handler> = {
   'zeeli:firewall.networks': (s) => ({
     networks: NETWORKS.map((name) => ({ name, zone: fw(s).zones.find((z) => z.networks.includes(name))?.name ?? null })),
@@ -396,6 +418,49 @@ const firewall: Record<string, Handler> = {
       if (!x) return err('That forwarding is gone. Reload the list.');
       if (!x.editable) return err('Forwardings made by router services are changed from that service.');
       f.forwardings = f.forwardings.filter((y) => y !== x);
+      return {};
+    }),
+
+  'zeeli:firewall.access_apply': (s, a) =>
+    write(s, 'changing which networks can reach each other', (f) => {
+      const cells = Array.isArray(a.cells) ? (a.cells as AccessCell[]) : [];
+      if (!cells.length) return err('Pick at least one change.');
+      if (f.zones.find((z) => z.networks.includes('lan'))?.input !== 'ACCEPT')
+        return err(
+          'the Main LAN doesn’t accept traffic to the router. Fix that in its zone settings before changing what networks can reach.',
+        );
+      let changed = 0;
+      for (const cell of cells) {
+        const bad = cellProblem(f, cell);
+        if (bad) return err(bad);
+        const at = f.forwardings.findIndex((x) => x.src === cell.src && x.dest === cell.dest);
+        if (cell.allow && at < 0) {
+          f.forwardings.push({
+            id: `cfg${(seq++).toString(16)}`,
+            src: cell.src,
+            dest: cell.dest,
+            enabled: true,
+            owner: 'custom',
+            editable: true,
+          });
+          changed++;
+        } else if (!cell.allow && at >= 0) {
+          f.forwardings.splice(at, 1);
+          changed++;
+        }
+      }
+      return { changed };
+    }),
+
+  'zeeli:firewall.mdns_status': (s) => fw(s).mdns,
+  'zeeli:firewall.mdns_set': (s, a) =>
+    write(s, 'changing device discovery across networks', (f) => {
+      const zones = Array.isArray(a.zones) ? (a.zones as string[]) : [];
+      if (typeof a.enabled !== 'boolean') return err('Turn device discovery on or off.');
+      if (a.enabled && new Set(zones).size < 2) return err('Pick at least two networks to share devices between.');
+      const bad = a.enabled ? zones.find((n) => !gridZone(f.zones.find((z) => z.name === n))) : undefined;
+      if (bad) return err(`${bad} can’t share devices: it isn’t a network of yours.`);
+      f.mdns = { available: true, enabled: a.enabled, zones: a.enabled ? [...new Set(zones)] : [] };
       return {};
     }),
 
