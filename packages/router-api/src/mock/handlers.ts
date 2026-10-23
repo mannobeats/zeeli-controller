@@ -1,4 +1,5 @@
 import { adguardHandlers } from './adguard-handlers.ts';
+import { agentNames } from './agent-names.ts';
 import { agentPolicies } from './agent-policies.ts';
 import { agentSafety } from './agent-safety.ts';
 import { agentStats } from './agent-stats.ts';
@@ -170,4 +171,5 @@ export const handlers: Record<string, Handler> = {
   ...agentSafety,
   ...agentStats,
   ...agentPolicies,
+  ...agentNames,
 };

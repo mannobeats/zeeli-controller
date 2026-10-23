@@ -83,3 +83,30 @@ const RADIO: Record<string, { category: Category; link: string }> = {
 export const bandCategory = (band: string): Category => RADIO[band.toUpperCase()]?.category ?? 'wired';
 /** The `link.band` a client on this radio reports, so radios and clients can be matched. */
 export const bandLink = (band: string): string | undefined => RADIO[band.toUpperCase()]?.link;
+
+// Hostnames give most devices away: "Maya-iPhone", "DESKTOP-4F2", "HP-LaserJet", "ps5-living-room".
+const GUESSES: [RegExp, DeviceClass][] = [
+  [/iphone|android|galaxy|pixel|oneplus|redmi|xiaomi-?\d|phone/i, 'phone'],
+  [/ipad|tablet|kindle|fire-?\d|tab-?\w/i, 'pad'],
+  [/macbook|laptop|thinkpad|notebook|surface|chromebook/i, 'laptop'],
+  [/imac|desktop|workstation|mac-?(mini|studio|pro)|studio-mac|^pc\b|-pc\b/i, 'computer'],
+  [/watch/i, 'watch'],
+  [/\btv\b|-tv|tv-|television|roku|chromecast|appletv|firetv|bravia|webos|tizen|shield/i, 'television'],
+  [/sonos|echo|homepod|speaker|alexa|soundbar|nest-?(mini|audio)/i, 'sound'],
+  [/cam\b|camera|doorbell|ring-|reolink|wyze|eufy/i, 'camera'],
+  [/printer|laserjet|officejet|epson|brother|canon|deskjet|pixma/i, 'printer'],
+  [/playstation|ps[345]\b|xbox|nintendo|switch|steamdeck|steam-?deck/i, 'games'],
+  [/thermostat|bulb|plug|hue|lamp|sensor|shelly|tasmota|esp-?\d|esp32|tuya|smart|vacuum|roomba/i, 'smartappliances'],
+  [/synology|qnap|diskstation|nas\b|^nas-|truenas/i, 'nas'],
+  [/proxmox|server|raspberry|^pi\b|-pi\b|ubuntu|debian|runner|docker|esxi|homelab/i, 'server'],
+];
+
+/** The device type its name suggests, or '' when it gives nothing away. A type already set wins. */
+export function suggestClass(c: Pick<Client, 'hostname' | 'alias' | 'deviceClass'>): DeviceClass {
+  if (c.deviceClass) return c.deviceClass;
+  const text = `${c.alias} ${c.hostname}`;
+  return GUESSES.find(([pattern]) => pattern.test(text))?.[1] ?? '';
+}
+
+/** "Maya-iPhone" -> "Maya iPhone": a hostname turned into a name people would type. */
+export const friendlyName = (hostname: string) => hostname.replace(/[-_]+/g, ' ').trim();

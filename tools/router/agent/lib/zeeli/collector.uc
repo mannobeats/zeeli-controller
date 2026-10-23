@@ -5,6 +5,7 @@
 'use strict';
 
 import { stat } from 'fs';
+import * as names from 'zeeli.names';
 import * as ring from 'zeeli.ring';
 import * as stats from 'zeeli.stats';
 import { inNet, snapshot } from 'zeeli.sources';
@@ -161,7 +162,10 @@ function run() {
 		if (t >= MIN_TIME) {
 			const began = clock();
 			const cfg = stats.config();
-			tick(st, snapshot(cfg.target), cfg);
+			const snap = snapshot(cfg.target);
+			tick(st, snap, cfg);
+			// addresses move, so keep the .lan names pointed at where devices are now
+			names.refresh(snap.clients);
 			const done = clock();
 			stats.writeAtomic(`${stats.dir()}/status.json`, sprintf('%J', { t, took: (done[0] - began[0]) * 1000 + int((done[1] - began[1]) / 1000000) }));
 			if (t - st.summarized >= SUMMARY_EVERY) {

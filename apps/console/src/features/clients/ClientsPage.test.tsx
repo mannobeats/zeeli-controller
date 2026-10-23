@@ -60,11 +60,11 @@ test('reserving and releasing the address from the sheet', async () => {
   await user.click(await rowOf(c.name));
   const s = await sheet();
   await settled();
-  await user.click(await s.findByRole('button', { name: 'Reserve this IP' }));
+  await user.click(await s.findByRole('button', { name: 'Keep this IP' }));
   await s.findByRole('button', { name: 'Remove reservation' });
   expect((await api.networks.reservations()).some((r) => r.mac === c.mac)).toBe(true);
   await user.click(s.getByRole('button', { name: 'Remove reservation' }));
-  await s.findByRole('button', { name: 'Reserve this IP' });
+  await s.findByRole('button', { name: 'Keep this IP' });
 });
 
 test('blocking from the sheet asks first and can be undone', async () => {

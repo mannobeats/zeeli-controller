@@ -6,6 +6,7 @@ import { device } from './domain/device.ts';
 import { dns } from './domain/dns.ts';
 import { family } from './domain/family.ts';
 import { internet } from './domain/internet.ts';
+import { names } from './domain/names.ts';
 import { networkExtras } from './domain/network-extras.ts';
 import { networks } from './domain/networks.ts';
 import { openwrt } from './domain/openwrt.ts';
@@ -49,6 +50,7 @@ export function createRouterApi(transport: Transport) {
     safety: safety(transport),
     stats: stats(transport),
     policies: policyApi,
+    names: names(transport),
   };
 }
 

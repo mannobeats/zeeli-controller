@@ -17,6 +17,8 @@ import { SectionPanel } from '../../ui/SectionPanel.tsx';
 import { PolicyNote } from '../policies/AgentNote.tsx';
 import { ClientPages } from './ClientPages.tsx';
 import { DeviceSheet } from './DeviceSheet.tsx';
+import { useNewDevices } from './localNames.ts';
+import { NewDevices } from './Onboarding.tsx';
 
 type Status = 'all' | 'online' | 'offline' | 'blocked';
 const STATUS: [Status, string, (c: Client) => boolean][] = [
@@ -84,6 +86,7 @@ export default function ClientsPage() {
   const networks = useQuery({ queryKey: ['networks'], queryFn: api.networks.list }).data ?? [];
   const [open, setOpen] = useState<string | null>(() => hashParams().get('device'));
   const { setBlocked, forgetAll } = useClientActions();
+  const fresh = useNewDevices();
 
   const all = query.data ?? [];
   const inCat = (c: Client) => !cats.size || cats.has(categoryOf(c));
@@ -102,6 +105,7 @@ export default function ClientsPage() {
     <>
       <PageHeader title="Clients" sub={`${all.filter((c) => c.online).length} online of ${all.length} known`} />
       <ClientPages current="clients" />
+      <NewDevices devices={fresh} onOpen={setOpen} />
       <ClientFilters
         all={all}
         status={status}

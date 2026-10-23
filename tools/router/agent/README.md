@@ -362,3 +362,13 @@ done
 ### Not done
 
 - `zeeli-update remove` takes the include and dnsmasq sections away but not the speed limits the agent set (`zeeli_applied`); see the lines in the report to add to it.
+
+## Local names
+
+`zeeli.names` (`rpcd/zeeli-names.uc`, `lib/zeeli/names.uc`) gives every named device a `<name>.lan` address.
+
+- The console sends the list of named devices (`sync`: `mac`, `name`, `ip`). The agent keeps `mac|name` in `config names 'zeeli_names'` in `/etc/config/zeeli`, with the on/off switch (`enabled`, default on) and the MACs a person set up or dismissed from onboarding (`dismissed`).
+- `bin/zeeli-collector` calls `names.refresh` every tick with the router's clients, so a name follows its device when DHCP moves it. It writes `/tmp/hosts/zeeli` (one `ip host.lan` per line) only when the text changed, and then runs `/etc/init.d/dnsmasq reload`. dnsmasq reads all of `/tmp/hosts` (`addn-hosts=/tmp/hosts`). `zeeli-update remove` deletes the file.
+- Host names: lower case, runs of anything but `a-z0-9` become `-`, no leading or trailing `-`, at most 63 characters. Repeats get `-2`, `-3` in MAC order, so a suffix doesn't move when another device is named.
+- The zone is the one in `dhcp.@dnsmasq[0].local` (`/lan/`), not `domain` (on the test router that is a Tailscale name, `dolly-werner.ts.net`).
+- **AdGuard Home.** dnsmasq answers on port 53 and forwards to AdGuard (`server=127.0.0.1#3053`), but while AdGuard is on, GL's `inet dns_table` redirects every device's port-53 traffic straight to AdGuard, so dnsmasq never sees the lookup and AdGuard has never heard of `.lan`. The console adds one upstream rule, `[/lan/]127.0.0.1:53`, through AdGuard's `dns_config` (`forwardToDnsmasq`); dnsmasq owns the `lan` zone, so it answers or says NXDOMAIN and never loops back. Changing DNS in GL's panel can rewrite AdGuard's upstream list; the console puts the rule back the next time it reads names (at most every minute while a Clients page is open).

@@ -152,6 +152,8 @@ case "${1:-}" in
     nft delete chain inet fw4 zeeli_forward 2>/dev/null || true
     for c in $(nft list table inet fw4 2>/dev/null | sed -n 's/^[[:space:]]*chain \(zeeli_[a-z0-9_]*\) {.*/\1/p'); do nft delete chain inet fw4 "$c" 2>/dev/null || true; done
     for t in $(nft list table inet fw4 2>/dev/null | sed -n 's/^[[:space:]]*set \(zeeli_[a-z0-9_]*\) {.*/\1/p'); do nft delete set inet fw4 "$t" 2>/dev/null || true; done
+    # the .lan names of devices; the reload below makes dnsmasq forget them
+    rm -f /tmp/hosts/zeeli
     /etc/init.d/dnsmasq reload || true
     /etc/init.d/rpcd restart || true
     /etc/init.d/nginx reload || true
