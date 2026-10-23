@@ -43,7 +43,7 @@ export function ago(unixSeconds: number, now = Date.now() / 1000): string {
   if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min ago`;
   if (s < 86_400) return `${Math.round(s / 3600)} h ago`;
   const days = Math.round(s / 86_400);
-  if (days < 14) return `${days} days ago`;
+  if (days < 14) return `${plural(days, 'day')} ago`;
   return new Date(unixSeconds * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
