@@ -129,6 +129,13 @@ case "${1:-}" in
     for s in $(uci -q show dhcp | sed -n "s/^dhcp\.\(zeeli_[a-z0-9_]*\)=ipset$/\1/p"); do uci -q delete "dhcp.$s" || true; done
     uci commit firewall
     uci commit dhcp
+    # speed limits the policies set (zeeli_applied lists them as mac=down=up); the last del
+    # also stops gl_eqos's queue
+    for e in $(uci -q get zeeli.zeeli_applied.limit); do
+      /usr/bin/gl_eqos del "$(echo "${e%%=*}" | tr 'a-f' 'A-F')" || true
+    done
+    uci -q delete zeeli.zeeli_applied || true
+    uci -q commit zeeli || true
     rm -rf "$DEST" /usr/share/zeeli /usr/share/ucode/zeeli /etc/zeeli "$ACL" "$SELF" \
       /usr/share/gl-upload.d/zeeli /usr/share/gl-download.d/zeeli /tmp/zeeli /var/lib/zeeli
     /etc/init.d/firewall reload || true
