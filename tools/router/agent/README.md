@@ -51,3 +51,23 @@ sh tools/router/agent/test/run.sh                                      # in an O
 ```
 
 Each `test/*.test.uc` runs on a fresh copy of `test/fixtures/be9300`: the GL-BE9300's `wireless`, `network`, `firewall`, `dhcp` and `mlo` settings, with passwords, names and MAC addresses scrubbed. Use `plugin('<area>')` from `test/assert.uc` to call methods the way rpcd does, then read the sandbox with `cursor()` to check what was written.
+
+## History: `zeeli.stats` and the collector
+
+`init.d/zeeli-collector` runs `bin/zeeli-collector run` under procd (respawned, low priority). ucode here has no uloop, so the loop is plain: sample, `sleep()` until the next minute, repeat. A sample takes about 0.1 s of wall time, mostly pings, and the process holds 2.4 MB. `lib/zeeli/collector.uc` has the logic (`tick` takes a snapshot as an argument, so tests feed it made-up ones), `lib/zeeli/sources.uc` reads the router, `lib/zeeli/ring.uc` stores, `lib/zeeli/stats.uc` answers `rpcd/zeeli-stats.uc`.
+
+| What                                        | Where it comes from                                                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Uplink bytes                                | `/sys/class/net/<l3_device>/statistics`, the files GL's own WAN speed reads                                                                       |
+| Device bytes                                | `gl-clients list` totals, which GL's `oui-tertf` kernel module counts, offloaded flows included                                                   |
+| Network bytes                               | The sum over a network's devices (matched by subnet). Bridge counters can miss flows the hardware forwards                                        |
+| CPU, memory, temperature                    | `/proc/stat`, `/proc/meminfo`, the hottest thermal zone                                                                                           |
+| Latency and loss                            | Four `ping -A` to the uplink's gateway and to `target` (default 1.1.1.1), bound to that uplink and run in parallel; none for an uplink that is down |
+| Active uplink                               | The device of the lowest-metric default route in `/proc/net/route`                                                                                |
+
+- **Storage:** one text file per device, network, uplink, `system` and per-uplink `health` in `/var/lib/zeeli/stats/` (RAM). Each holds three fixed rings: 1-minute slots for 24 hours, hourly for 30 days, daily for 12 months (local days). A traffic file is 50 KB and never grows; the cap is 96 devices (about 5 MB). A slot with no sample is `-`, not zero, so a gap shows as a gap.
+- **Flash:** every 15 minutes and on a clean stop (`stop_service` runs `zeeli-collector persist`) the files are copied to `/overlay/zeeli`. That is on the overlay partition, so it survives reboots, but it is outside `/etc` so backups don't carry megabytes of history and a factory reset clears it. A router without `/overlay` keeps history in RAM only (`status.durable` is false). `ZEELI_PERSIST` overrides the place. History older than a year, and the least recently seen devices beyond the cap, are dropped when it saves.
+- **Events** are one JSON line each in `events.jsonl` (the newest 500). A device counts as new when it has no history and wasn't in GL's list on an earlier tick; the first run after an install only learns what is there. Alerts are events flagged at the time they happen, from the kinds turned on in `/etc/config/zeeli` (`config alerts 'zeeli_alerts'`). Acknowledgements are written through to flash straight away.
+- **Settings** in `/etc/config/zeeli`: `config stats 'zeeli_stats'` has `target` and `temp_high`; `config alerts 'zeeli_alerts'` has `list on`.
+- **Signals:** connecting to ubus installs uloop's signal handlers, which swallow SIGTERM when no uloop runs. `sources.uc` resets them, or procd could only stop the collector with SIGKILL.
+- **Whole-number maths:** ucode's `/` divides whole numbers without a fraction (`2150 / 100` is 21). Use `/ 100.0`, or the `ratio` helper, where you need the fraction.

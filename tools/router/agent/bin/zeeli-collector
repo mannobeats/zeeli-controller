@@ -1,0 +1,14 @@
+#!/usr/bin/ucode
+// The history collector: samples the router every minute (see lib/zeeli/collector.uc).
+//   zeeli-collector run       the service
+//   zeeli-collector persist   copy the history to flash now (the init script runs this on stop)
+'use strict';
+
+import { run, save } from 'zeeli.collector';
+
+if (ARGV[0] == 'persist') exit(save() ? 0 : 1);
+if (ARGV[0] != 'run') {
+	warn('usage: zeeli-collector run|persist\n');
+	exit(2);
+}
+run();
