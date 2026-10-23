@@ -14,7 +14,8 @@ test('the ports table shows each port’s link, speed, role and networks', async
   await renderPage(<PortsPage />);
   const t = await details();
   const lan1 = (await t.findByText('LAN1', { selector: '.name' })).closest('tr') as HTMLElement;
-  expect(within(lan1).getByText('Connected')).toBeTruthy();
+  // the link columns fill in when the agent's port status arrives, after the ports themselves
+  expect(await within(lan1).findByText('Connected')).toBeTruthy();
   expect(within(lan1).getByText('1 Gb/s')).toBeTruthy();
   expect(within(lan1).getByText(/full duplex/)).toBeTruthy();
   expect(within(lan1).getByText('LAN')).toBeTruthy();

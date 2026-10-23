@@ -52,16 +52,17 @@ test('clicking a node focuses it, clicking again lets go', async () => {
   expect(nodeOf(on.name).classList).not.toContain('lit');
 });
 
-test('mesh nodes and the ports with a cable join the map', async () => {
+test('mesh nodes join the map, and the router card shows its ports', async () => {
   await api.networkExtras.mesh.config.set({ enabled: true, mode: 'controller' });
   await renderPage(<TopologyPage />);
   expect(await screen.findByText('Upstairs')).toBeTruthy();
   expect(await screen.findByText('WiFi · -57 dBm · 6 clients')).toBeTruthy();
   expect(await screen.findByText('Wired · 3 clients')).toBeTruthy();
-  expect(await screen.findByText('LAN1')).toBeTruthy();
-  expect(screen.getAllByText('1 Gb/s')).toHaveLength(2);
-  expect(screen.getByText('Internet · 2.5 Gb/s')).toBeTruthy();
-  expect(screen.queryByText('LAN2')).toBeNull();
+  const ports = await screen.findByRole('list', { name: 'Ports' });
+  expect(ports.querySelector('li.up')?.getAttribute('title')).toBe('WAN: Internet · 2.5 Gb/s');
+  expect(ports.querySelectorAll('li').length).toBe(5);
+  // devices have no wires of their own: only the core chain, one per network and one per mesh node
+  expect(document.querySelectorAll('.react-flow__edge').length).toBeLessThan(12);
   await api.networkExtras.mesh.config.set({ enabled: false });
 });
 
@@ -70,7 +71,7 @@ test('without the agent or mesh the map is just clients and networks', async () 
   const { on } = await split();
   await renderPage(<TopologyPage />);
   await screen.findByText(on.name);
-  expect(screen.queryByText('LAN1')).toBeNull();
+  expect(screen.queryByRole('list', { name: 'Ports' })).toBeNull();
   expect(screen.queryByText('Upstairs')).toBeNull();
   vi.restoreAllMocks();
 });

@@ -25,7 +25,7 @@ import { plural, rateText } from '../../lib/format.ts';
 import { Button } from '../../ui/Button.tsx';
 import { Swatch } from '../../ui/DeviceIcon.tsx';
 import { PageHeader } from '../../ui/Layout.tsx';
-import { type CoreData, extraGraph, NODE } from './extras.ts';
+import { type CoreData, meshGraph, NODE, portOf, ROUTER_WITH_PORTS, type RouterPort, routerPorts } from './extras.ts';
 import { absolute, litPath } from './path.ts';
 import { useExtras } from './useExtras.ts';
 
@@ -35,6 +35,8 @@ interface DeviceData extends Record<string, unknown> {
   kind: 'device';
   client: Client;
   category: Category;
+  /** The LAN port a wired device sits behind, when the router can tell. */
+  port?: string;
 }
 interface NetworkData extends Record<string, unknown> {
   network: Network;
@@ -43,34 +45,44 @@ interface NetworkData extends Record<string, unknown> {
 }
 type TopoNode = Node<CoreData, 'core'> | Node<NetworkData, 'network'> | Node<DeviceData, 'device'>;
 
-/** 1.5px idle up to 7px at about 100 Mbps, on a log scale so small talkers still show. */
-const wireWidth = (bytesPerSec: number) => 1.5 + Math.min(5.5, Math.log10(1 + (bytesPerSec * 8) / 1e5) * 2.75);
+/** 1.5px idle up to 4.5px at about 100 Mbps, on a log scale so small talkers still show. */
+const wireWidth = (bytesPerSec: number) => 1.5 + Math.min(3, Math.log10(1 + (bytesPerSec * 8) / 1e5) * 1.5);
+/** A device's share of a 100 Mbps scale for its traffic bar, on the same log scale as the wires. */
+const meterShare = (bytesPerSec: number) => Math.min(1, Math.log10(1 + (bytesPerSec * 8) / 1e5) / 2);
 
 const GAP = 12;
 const PAD = 16;
 const HEAD = 52;
 /** Devices sit in a grid inside their network; four across keeps a 100-device home readable. */
 const PER_ROW = 4;
-const NET_X = 760;
+const NET_X = 820;
+
+/** An empty network is just its heading and a line saying so. */
+const EMPTY_HEIGHT = HEAD + 26;
 
 const gridSize = (n: number) => {
   const cols = Math.max(2, Math.min(n, PER_ROW));
-  const rows = Math.max(1, Math.ceil(n / PER_ROW));
-  return { width: PAD * 2 + cols * NODE.width + (cols - 1) * GAP, height: HEAD + PAD + rows * NODE.height + (rows - 1) * GAP };
+  const rows = Math.ceil(n / PER_ROW);
+  const width = PAD * 2 + cols * NODE.width + (cols - 1) * GAP;
+  return { width, height: rows ? HEAD + PAD + rows * NODE.height + (rows - 1) * GAP : EMPTY_HEIGHT };
 };
+
+interface RouterView {
+  host: string;
+  lanIp: string;
+  uplink: string;
+  uplinkSub?: string;
+  ports: RouterPort[];
+  portMap: Map<string, string>;
+}
 
 /**
  * Internet → uplink → router on the left; each network is a box on the right holding its
- * devices. The router wires once to each network, as thick as that network's traffic.
+ * devices. The router wires once to each network, as thick as that network's traffic. Devices
+ * get no wires of their own: their link, port and traffic are in their card, so the map stays
+ * clean however many there are.
  */
-function buildGraph(
-  clients: Client[],
-  networks: Network[],
-  host: string,
-  lanIp: string,
-  uplink: string,
-  uplinkSub = 'Active uplink',
-): { nodes: TopoNode[]; edges: Edge[] } {
+function buildGraph(clients: Client[], networks: Network[], r: RouterView): { nodes: TopoNode[]; edges: Edge[] } {
   const nodes: TopoNode[] = [];
   const edges: Edge[] = [];
   const groups = networks
@@ -83,11 +95,25 @@ function buildGraph(
     });
   const height = groups.reduce((h, g) => h + g.size.height + 24, -24);
   const mid = Math.max(0, height / 2 - NODE.height / 2);
-  const core = (id: string, x: number, data: CoreData): TopoNode => ({ id, type: 'core', ...NODE, position: { x, y: mid }, data });
+  const core = (id: string, x: number, data: CoreData, size: { width: number; height: number } = NODE): TopoNode => ({
+    id,
+    type: 'core',
+    ...size,
+    // every core card shares one centre line, whatever its height
+    position: { x, y: mid + (NODE.height - size.height) / 2 },
+    data,
+  });
 
   nodes.push(core('internet', 0, { kind: 'internet', title: 'Internet', sub: '', icon: IconWorld }));
-  nodes.push(core('uplink', 260, { kind: 'uplink', title: uplink, sub: uplinkSub, icon: IconNetwork }));
-  nodes.push(core('router', 520, { kind: 'router', title: host, sub: lanIp, icon: IconRouter }));
+  nodes.push(core('uplink', 260, { kind: 'uplink', title: r.uplink, sub: r.uplinkSub ?? 'Active uplink', icon: IconNetwork }));
+  nodes.push(
+    core(
+      'router',
+      520,
+      { kind: 'router', title: r.host, sub: r.lanIp, icon: IconRouter, ports: r.ports.length ? r.ports : undefined },
+      r.ports.length ? ROUTER_WITH_PORTS : NODE,
+    ),
+  );
   edges.push({ id: 'e-i-u', source: 'internet', target: 'uplink', animated: true, className: 'topo-edge live' });
   edges.push({ id: 'e-u-r', source: 'uplink', target: 'router', animated: true, className: 'topo-edge live' });
 
@@ -106,7 +132,8 @@ function buildGraph(
       id: `e-r-${netId}`,
       source: 'router',
       target: netId,
-      animated: online.length > 0,
+      // solid, as thick as the traffic; the moving dashes stay on the internet chain
+      type: 'smoothstep',
       className: `topo-edge${online.length ? ' live' : ''}`,
       style: { strokeWidth: wireWidth(online.reduce((n, c) => n + c.rx + c.tx, 0)) },
     });
@@ -119,7 +146,7 @@ function buildGraph(
         draggable: false,
         ...NODE,
         position: { x: PAD + (i % PER_ROW) * (NODE.width + GAP), y: HEAD + Math.floor(i / PER_ROW) * (NODE.height + GAP) },
-        data: { kind: 'device', client: c, category: categoryOf(c) },
+        data: { kind: 'device', client: c, category: categoryOf(c), port: r.portMap.get(c.mac) },
       });
     });
     y += size.height + 24;
@@ -133,13 +160,20 @@ const CoreNode = memo(function CoreNode({ data }: NodeProps<Node<CoreData, 'core
   const I = data.icon;
   return (
     <div className={`topo-node core ${data.kind}`}>
-      {data.kind === 'internet' ? null : (
-        <Handle type="target" position={data.kind === 'mesh' || data.kind === 'port' ? Position.Top : Position.Left} />
-      )}
+      {data.kind === 'internet' ? null : <Handle type="target" position={data.kind === 'mesh' ? Position.Top : Position.Left} />}
       <I size={20} stroke={1.75} />
       <div>
         <b>{data.title}</b>
         {data.sub ? <span>{data.sub}</span> : null}
+        {data.ports ? (
+          <ul className="topo-ports" aria-label="Ports">
+            {data.ports.map((p) => (
+              <li key={p.label} className={p.up ? 'up' : undefined} title={`${p.label}: ${p.detail}`}>
+                {p.label}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       <Handle type="source" position={Position.Right} />
       {data.kind === 'router' ? <Handle type="source" position={Position.Bottom} id="below" /> : null}
@@ -150,17 +184,19 @@ const CoreNode = memo(function CoreNode({ data }: NodeProps<Node<CoreData, 'core
 const DeviceNode = memo(function DeviceNode({ data }: NodeProps<Node<DeviceData, 'device'>>) {
   const c = data.client;
   const I = iconFor(c);
+  const link = data.port ? `${c.link.label} · ${data.port}` : c.link.label;
   return (
-    <div className={`topo-node device${c.online ? '' : ' offline'}`}>
-      <Handle type="target" position={Position.Left} />
+    <div className={`topo-node device cat-${data.category}${c.online ? '' : ' offline'}`}>
       <I size={18} stroke={1.75} />
       <div>
         <b>{c.name}</b>
         <span className="conn">
           <Swatch category={data.category} />
-          {c.online ? `${c.link.label} · ${rateText(c.rx)}` : 'Offline'}
+          {c.online ? `${link} · ${rateText(c.rx + c.tx)}` : 'Offline'}
         </span>
       </div>
+      {/* traffic as a bar along the card's foot, instead of a wire across the map */}
+      {c.online ? <i className="topo-meter" style={{ inlineSize: `${Math.max(4, meterShare(c.rx + c.tx) * 100)}%` }} aria-hidden /> : null}
     </div>
   );
 });
@@ -211,10 +247,18 @@ function useGraph(showOffline: boolean) {
   const shown = showOffline ? clients : clients.filter((c) => c.online);
   const extra = useExtras();
   const graph = useMemo(() => {
-    const g = buildGraph(shown, nets.data ?? [], info?.hostname ?? 'Router', status?.lanIp ?? '', uplink, uplinkSub);
-    const router = g.nodes.find((n) => n.id === 'router')?.position ?? { x: 520, y: 0 };
-    const more = extraGraph(router, { ...extra, deviceIds: new Set(g.nodes.map((n) => n.id)) });
-    return { nodes: [...g.nodes, ...more.nodes], edges: [...g.edges, ...more.edges] };
+    const g = buildGraph(shown, nets.data ?? [], {
+      host: info?.hostname ?? 'Router',
+      lanIp: status?.lanIp ?? '',
+      uplink,
+      uplinkSub,
+      ports: routerPorts(extra.ports),
+      portMap: portOf(extra.ports),
+    });
+    const router = g.nodes.find((n) => n.id === 'router');
+    const at = { x: router?.position.x ?? 520, y: router?.position.y ?? 0, height: router?.height ?? NODE.height };
+    const mesh = meshGraph(at, extra.mesh);
+    return { nodes: [...g.nodes, ...mesh.nodes], edges: [...g.edges, ...mesh.edges] };
   }, [shown, nets.data, info?.hostname, status?.lanIp, uplink, uplinkSub, extra]);
   return { clients, nets: nets.data ?? [], graph, ready: Boolean(nets.data && clientsQuery.data) };
 }

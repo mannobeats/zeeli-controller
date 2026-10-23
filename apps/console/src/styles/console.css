@@ -141,12 +141,19 @@ body:has(.bulk-bar) .toast { bottom: 80px; }
 .topo-node.offline .swatch { background: var(--ink-4); }
 .topo-node span { color: var(--ink-3); font-size: var(--t-12); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topo-node.core.router { border-color: var(--brand); color: var(--brand); }
+/* the router's back panel: one chip per port, lit when a cable is in */
+.topo-ports { display: flex; gap: 3px; margin: 5px 0 0; padding: 0; list-style: none; }
+.topo-ports li { padding: 1px 4px; border-radius: 3px; border: 1px solid var(--line-strong); color: var(--ink-4); font-size: 10px; line-height: 13px; font-weight: 500; }
+.topo-ports li.up { border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: var(--ok-soft); color: var(--ok); }
+/* a device's traffic, as a bar along the foot of its card */
+.topo-node.device { position: relative; overflow: hidden; }
+.topo-meter { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--cat, var(--brand)); opacity: .85; border-radius: 0 2px 0 0; transition: inline-size var(--t-med, .3s) var(--ease, ease); }
 .topo-node.device.offline b { color: var(--ink-3); }
 .topo-net { width: 100%; height: 100%; border-radius: var(--radius-lg); border: 1px solid var(--line-strong); background: color-mix(in srgb, var(--fill) 60%, transparent); }
 .topo-net-head { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; padding: 16px 16px 0; }
 .topo-net-head b { color: var(--ink); font-size: var(--t-14); font-weight: 600; }
 .topo-net-head span { color: var(--ink-3); font-size: var(--t-12); }
-.topo-net-empty { margin: 14px 16px 0; color: var(--ink-3); font-size: var(--t-13); }
+.topo-net-empty { margin: 6px 16px 0; color: var(--ink-3); font-size: var(--t-12); }
 .react-flow__node-network.dim .topo-net { opacity: .5; }
 .react-flow__node-network { cursor: grab; }
 .react-flow__node.selected .topo-node, .topo-node:hover { border-color: var(--ink-4); }

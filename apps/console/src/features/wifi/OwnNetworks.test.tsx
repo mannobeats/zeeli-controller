@@ -144,8 +144,12 @@ test('editing keeps the password unless one is typed, and can show the current o
   await user.click(again.getByRole('checkbox', { name: /^Fast roaming/ }));
   await user.click(again.getByRole('checkbox', { name: 'Turn off at set times' }));
   await user.click(again.getByRole('button', { name: 'Save' }));
-  await waitFor(async () => expect((await named('Kids Room')).options).toMatchObject({ maxClients: 9, fastRoaming: true }));
-  expect((await named('Kids Room')).schedule).toBeNull();
+  // the options and the schedule are separate calls, so wait for both
+  await waitFor(async () => {
+    const n = await named('Kids Room');
+    expect(n.options).toMatchObject({ maxClients: 9, fastRoaming: true });
+    expect(n.schedule).toBeNull();
+  });
 });
 
 test('deleting asks first and names the network', async () => {
