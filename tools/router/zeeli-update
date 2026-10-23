@@ -138,9 +138,13 @@ case "${1:-}" in
     done
     uci -q delete zeeli.zeeli_applied || true
     uci -q commit zeeli || true
-    rm -rf "$DEST" /usr/share/zeeli /usr/share/ucode/zeeli /etc/zeeli "$ACL" "$SELF" \
+    rm -rf "$DEST" /usr/share/zeeli /usr/share/ucode/zeeli /usr/libexec/zeeli /etc/zeeli "$ACL" "$SELF" \
       /usr/share/gl-upload.d/zeeli /usr/share/gl-download.d/zeeli /tmp/zeeli /var/lib/zeeli
     /etc/init.d/firewall reload || true
+    # fw4 keeps chains and sets it no longer declares, so the policies' own go by hand
+    nft delete chain inet fw4 zeeli_forward 2>/dev/null || true
+    for c in $(nft list table inet fw4 2>/dev/null | sed -n 's/^[[:space:]]*chain \(zeeli_[a-z0-9_]*\) {.*/\1/p'); do nft delete chain inet fw4 "$c" 2>/dev/null || true; done
+    for t in $(nft list table inet fw4 2>/dev/null | sed -n 's/^[[:space:]]*set \(zeeli_[a-z0-9_]*\) {.*/\1/p'); do nft delete set inet fw4 "$t" 2>/dev/null || true; done
     /etc/init.d/dnsmasq reload || true
     /etc/init.d/rpcd restart || true
     /etc/init.d/nginx reload || true
