@@ -31,7 +31,7 @@ function fresh() {
 	c.commit('wireless');
 	c.foreach('zeeli', 'wifi_schedule', (s) => { c.delete('zeeli', s['.name']); });
 	c.commit('zeeli');
-	for (let f in ['wifi-pending', 'wifi-schedule.json', 'wifi-apply.log']) unlink(`${paths.state}/${f}`);
+	for (let f in ['wifi-pending', 'wifi-schedule.json', 'wifi-apply.log', 'wifi-teardown']) unlink(`${paths.state}/${f}`);
 }
 
 const t = (name, fn) => test(name, () => { fresh(); fn(); });
@@ -256,6 +256,24 @@ t('apply reloads WiFi once and clears the pending flag', () => {
 	eq(call('apply'), { applied: true });
 	eq(readfile(`${paths.state}/wifi-apply.log`), 'timeout 25 /sbin/wifi reload\n');
 	eq(call('list').pending, false);
+});
+
+t('deleting a network or dropping a band takes its interfaces off the air on apply', () => {
+	const r = made({ ssid: 'Gone', bands: ['2g', '5g'] });
+	call('apply');
+	unlink(`${paths.state}/wifi-apply.log`);
+	const all = sections();
+	const if2 = all[`zeeli_${r.id}_2g`].ifname, if5 = all[`zeeli_${r.id}_5g`].ifname;
+	ok(!call('update', { id: r.id, bands: ['5g'] }).error, 'dropping 2.4 GHz');
+	call('apply');
+	eq(readfile(`${paths.state}/wifi-apply.log`), `timeout 25 /sbin/wifi reload\nhostapd_cli -p /var/run/hostapd -i global raw REMOVE ${if2}\nifconfig ${if2} down\nwlanconfig ${if2} destroy\n`);
+	unlink(`${paths.state}/wifi-apply.log`);
+	call('delete', { id: r.id });
+	call('apply');
+	ok(match(readfile(`${paths.state}/wifi-apply.log`), regexp(`wlanconfig ${if5} destroy`)), 'the 5 GHz interface goes on delete');
+	unlink(`${paths.state}/wifi-apply.log`);
+	call('apply');
+	eq(readfile(`${paths.state}/wifi-apply.log`), 'timeout 25 /sbin/wifi reload\n', 'nothing is torn down twice');
 });
 
 t('GL’s WiFi timer still picks the firmware’s main AP on each band', () => {

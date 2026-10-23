@@ -92,6 +92,47 @@ function ensureConfig() {
 	if (stat(file) == null) writefile(file, '');
 }
 
+/** Run a command, or in a test sandbox note it in wifi-apply.log instead. */
+function runOrLog(argv) {
+	if (!paths.confdir) return run(argv);
+	mkdir(paths.state);
+	const log = `${paths.state}/wifi-apply.log`;
+	writefile(log, `${readfile(log) ?? ''}${join(' ', argv)}\n`);
+	return { code: 0, stdout: '' };
+}
+
+function teardownFile() {
+	return `${paths.state}/wifi-teardown`;
+}
+
+/** Interfaces of deleted sections, which `apply` takes off the air. */
+function queueTeardown(ifnames) {
+	let queued = [];
+	try { queued = json(readfile(teardownFile()) ?? '[]') ?? []; } catch (e) { queued = []; }
+	mkdir(paths.state);
+	writefile(teardownFile(), sprintf('%J', uniq([...queued, ...filter(ifnames, (n) => n)])));
+}
+
+/**
+ * The reload builds and updates interfaces from the config, but on this driver it never removes
+ * one whose section is gone: the network would stay on the air. So each deleted interface is
+ * taken out of hostapd (one process serves every interface) and destroyed in the driver.
+ */
+function teardown(c) {
+	let queued = [];
+	try { queued = json(readfile(teardownFile()) ?? '[]') ?? []; } catch (e) { queued = []; }
+	const inUse = {};
+	for (let s in sections(c, 'wireless', 'wifi-iface')) if (s.ifname) inUse[s.ifname] = true;
+	for (let n in queued) {
+		if (type(n) != 'string' || !match(n, /^wlan[0-9]+$/) || inUse[n]) continue;
+		if (!paths.confdir && stat(`/sys/class/net/${n}`) == null) continue;
+		runOrLog(['hostapd_cli', '-p', '/var/run/hostapd', '-i', 'global', 'raw', 'REMOVE', n]);
+		runOrLog(['ifconfig', n, 'down']);
+		runOrLog(['wlanconfig', n, 'destroy']);
+	}
+	unlink(teardownFile());
+}
+
 // ---- reading -------------------------------------------------------------------------
 
 /** Radios by device name. The band comes from the device, else from its hwmode. */
@@ -538,7 +579,11 @@ function rewrite(c, spec, own) {
 	const devs = radios(c);
 	const byBand = {};
 	for (let s in own) byBand[bandOf(devs, s)] = s;
-	for (let b in keys(byBand)) if (!(b in spec.bands)) c.delete('wireless', byBand[b]['.name']);
+	for (let b in keys(byBand)) {
+		if (b in spec.bands) continue;
+		queueTeardown([byBand[b].ifname]);
+		c.delete('wireless', byBand[b]['.name']);
+	}
 	for (let b in spec.bands) {
 		const old = byBand[b];
 		if (!old) {
@@ -591,6 +636,7 @@ function remove(id) {
 	const c = cursor();
 	const own = findGroup(c, id);
 	if (type(own) == 'object') return own;
+	queueTeardown(map(own, (s) => s.ifname));
 	for (let s in own) c.delete('wireless', s['.name']);
 	if (c.get('zeeli', `wifi_${id}`) != null) c.delete('zeeli', `wifi_${id}`);
 	return finish(c, {});
@@ -620,17 +666,10 @@ const RELOAD_SECONDS = 25;
 
 /** Reload WiFi so committed changes reach the radios. */
 function apply() {
-	const argv = ['timeout', `${RELOAD_SECONDS}`, '/sbin/wifi', 'reload'];
-	if (paths.confdir) {
-		// a test sandbox: note the command instead of running it
-		mkdir(paths.state);
-		const log = `${paths.state}/wifi-apply.log`;
-		writefile(log, `${readfile(log) ?? ''}${join(' ', argv)}\n`);
-	} else {
-		const r = run(argv);
-		if (r.code == 124) return fail('WiFi is still reloading. Your changes are saved; apply again in a minute if devices haven’t reconnected.');
-		if (r.code != 0) return fail(trim(r.stdout) || 'The router couldn’t reload WiFi.');
-	}
+	const r = runOrLog(['timeout', `${RELOAD_SECONDS}`, '/sbin/wifi', 'reload']);
+	if (r.code == 124) return fail('WiFi is still reloading. Your changes are saved; apply again in a minute if devices haven’t reconnected.');
+	if (r.code != 0) return fail(trim(r.stdout) || 'The router couldn’t reload WiFi.');
+	teardown(cursor());
 	markPending(false);
 	return { applied: true };
 }
