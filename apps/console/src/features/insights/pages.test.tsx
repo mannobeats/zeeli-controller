@@ -9,11 +9,13 @@ const log = async () => within(await screen.findByRole('table', { name: 'DNS que
 test('the query log filters to blocked lookups and by domain or device', async () => {
   const user = await renderPage(<DnsInsightsPage />);
   expect((await log()).getByText('graph.instagram.com')).toBeTruthy();
-  await user.click(screen.getByRole('checkbox', { name: 'Blocked only' }));
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Result' }), 'blocked');
   expect((await log()).queryByText('graph.instagram.com')).toBeNull();
   expect((await log()).getByText('doubleclick.net')).toBeTruthy();
   await user.type(screen.getByRole('searchbox', { name: 'Filter the query log' }), 'no-such-domain');
   expect(screen.getByText('No queries match.')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Clear' }));
+  expect((await log()).getByText('graph.instagram.com')).toBeTruthy();
 });
 
 test('clearing traffic statistics asks first', async () => {

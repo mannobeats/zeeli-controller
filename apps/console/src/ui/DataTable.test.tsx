@@ -168,3 +168,16 @@ test('a table without reorder has no grip column or announcer', () => {
   expect(screen.queryByRole('button')).toBeNull();
   expect(document.querySelector('[aria-live]')).toBeNull();
 });
+
+test('a long list stops at its limit and shows more on request', () => {
+  const many = Array.from({ length: 60 }, (_, i) => ({ id: String(i), name: `Row ${i}` }));
+  render(<DataTable label="Many" rows={many} rowKey={(r) => r.id} columns={[{ key: 'name', header: 'Name', cell: (r) => r.name }]} />);
+  expect(screen.queryByText('Row 25')).toBeNull();
+  expect(screen.getByText('25 of 60')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Show 25 more' }));
+  expect(screen.getByText('Row 49')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Show 10 more' }));
+  expect(screen.getByText('Row 59')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }));
+  expect(screen.queryByText('Row 25')).toBeNull();
+});

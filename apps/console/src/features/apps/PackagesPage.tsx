@@ -17,7 +17,6 @@ import { Loaded } from '../../ui/Loading.tsx';
 type View = 'installed' | 'available' | 'updates';
 type Change = 'install' | 'remove' | 'upgrade';
 /** Rows shown before "Show more"; the feeds list thousands of packages. */
-const STEP = 100;
 
 const VERBS: Record<Change, [doing: string, done: string, button: string]> = {
   install: ['Installing', 'installed', 'Install'],
@@ -197,7 +196,6 @@ function PackageRows({
   locked: boolean;
   act: (change: Change, pkg: Row) => void;
 }) {
-  const [limit, setLimit] = useState(STEP);
   const action = (p: Row) => {
     const change: Change | null = view === 'installed' ? 'remove' : view === 'updates' ? 'upgrade' : p.current ? null : 'install';
     if (!change) return <Chip>Installed</Chip>;
@@ -214,38 +212,29 @@ function PackageRows({
     );
   };
   return (
-    <>
-      <DataTable
-        label="Packages"
-        rows={rows.slice(0, limit)}
-        rowKey={(p) => p.name}
-        columns={[
-          { key: 'name', header: 'Package', phone: 'title', cell: (p) => <span className="name mono">{p.name}</span> },
-          {
-            key: 'ver',
-            header: 'Version',
-            phone: 'sub',
-            cell: (p) => <span className="mono muted">{view === 'updates' ? `${p.current} → ${p.version}` : p.version}</span>,
-          },
-          { key: 'desc', header: 'Description', cell: (p) => <span className="truncate">{p.description}</span> },
-          {
-            key: 'size',
-            header: 'Size',
-            align: 'end',
-            phone: 'hide',
-            cell: (p) => <span className="num muted">{p.size ? bytes(p.size) : ''}</span>,
-          },
-          { key: 'act', header: '', align: 'end', phone: 'end', cell: action },
-        ]}
-      />
-      {rows.length > limit ? (
-        <div className="app-more">
-          <span className="kicker">
-            Showing {limit.toLocaleString('en')} of {rows.length.toLocaleString('en')}. Search to narrow the list.
-          </span>
-          <Button onClick={() => setLimit((n) => n + STEP)}>Show more</Button>
-        </div>
-      ) : null}
-    </>
+    <DataTable
+      label="Packages"
+      rows={rows}
+      limit={100}
+      rowKey={(p) => p.name}
+      columns={[
+        { key: 'name', header: 'Package', phone: 'title', cell: (p) => <span className="name mono">{p.name}</span> },
+        {
+          key: 'ver',
+          header: 'Version',
+          phone: 'sub',
+          cell: (p) => <span className="mono muted">{view === 'updates' ? `${p.current} → ${p.version}` : p.version}</span>,
+        },
+        { key: 'desc', header: 'Description', cell: (p) => <span className="truncate">{p.description}</span> },
+        {
+          key: 'size',
+          header: 'Size',
+          align: 'end',
+          phone: 'hide',
+          cell: (p) => <span className="num muted">{p.size ? bytes(p.size) : ''}</span>,
+        },
+        { key: 'act', header: '', align: 'end', phone: 'end', cell: action },
+      ]}
+    />
   );
 }

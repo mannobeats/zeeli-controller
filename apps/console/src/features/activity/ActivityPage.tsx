@@ -14,7 +14,7 @@ import {
   IconUpload,
 } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import type { ActivityKind } from '@zeeli/router-api';
+import type { ActivityEvent, ActivityKind, Client } from '@zeeli/router-api';
 import { useState } from 'react';
 import { useClients } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
@@ -24,6 +24,7 @@ import { ago } from '../../lib/format.ts';
 import { Button } from '../../ui/Button.tsx';
 import { Segmented } from '../../ui/fields.tsx';
 import { Empty, PageHeader, Panel } from '../../ui/Layout.tsx';
+import { useLimit } from '../../ui/limit.tsx';
 
 type Filter = 'all' | 'devices' | 'internet' | 'security';
 const GROUP: Record<ActivityKind, Filter> = {
@@ -67,7 +68,6 @@ export default function ActivityPage() {
   const events = useQuery({ queryKey: ['activity'], queryFn: api.activity.recent, refetchInterval: 30_000 });
   const clients = useClients().data ?? [];
   const [filter, setFilter] = useState<Filter>('all');
-  const nameOf = (subject: string) => clients.find((c) => c.mac === subject)?.name ?? IFACE[subject] ?? subject;
   const rows = (events.data ?? []).filter((e) => filter === 'all' || GROUP[e.kind] === filter);
   const failed = (events.data ?? []).filter((e) => e.kind === 'admin.failed').reduce((n, e) => n + e.count, 0);
 
@@ -109,39 +109,50 @@ export default function ActivityPage() {
         {events.isError ? (
           <Empty>Couldn’t read the log: {errorMessage(events.error)}</Empty>
         ) : rows.length ? (
-          <ol className="timeline">
-            {rows.map((e) => {
-              const [I, tone] = ICON[e.kind];
-              const device = clients.find((c) => c.mac === e.subject);
-              return (
-                <li key={`${e.time.getTime()}-${e.kind}-${e.subject}`} className={`tl-${tone}`}>
-                  <span className="tl-dot">
-                    <I size={16} stroke={1.75} />
-                  </span>
-                  <div className="tl-body">
-                    <b>
-                      {device ? (
-                        <button type="button" className="link" onClick={() => navigate(`clients?device=${encodeURIComponent(device.mac)}`)}>
-                          {device.name}
-                        </button>
-                      ) : (
-                        nameOf(e.subject)
-                      )}
-                    </b>{' '}
-                    {e.detail.charAt(0).toLowerCase() + e.detail.slice(1)}
-                    {e.count > 1 ? <span className="muted"> ×{e.count}</span> : null}
-                  </div>
-                  <time className="tl-time" dateTime={e.time.toISOString()} title={e.time.toLocaleString()}>
-                    {ago(e.time.getTime() / 1000)}
-                  </time>
-                </li>
-              );
-            })}
-          </ol>
+          <Timeline rows={rows} clients={clients} />
         ) : (
           <Empty>{events.isLoading ? 'Reading the log…' : 'Nothing to show yet.'}</Empty>
         )}
       </Panel>
+    </>
+  );
+}
+
+function Timeline({ rows, clients }: { rows: ActivityEvent[]; clients: Client[] }) {
+  const { shown, more } = useLimit(rows);
+  const nameOf = (subject: string) => clients.find((c) => c.mac === subject)?.name ?? IFACE[subject] ?? subject;
+  return (
+    <>
+      <ol className="timeline">
+        {shown.map((e) => {
+          const [I, tone] = ICON[e.kind];
+          const device = clients.find((c) => c.mac === e.subject);
+          return (
+            <li key={`${e.time.getTime()}-${e.kind}-${e.subject}`} className={`tl-${tone}`}>
+              <span className="tl-dot">
+                <I size={16} stroke={1.75} />
+              </span>
+              <div className="tl-body">
+                <b>
+                  {device ? (
+                    <button type="button" className="link" onClick={() => navigate(`clients?device=${encodeURIComponent(device.mac)}`)}>
+                      {device.name}
+                    </button>
+                  ) : (
+                    nameOf(e.subject)
+                  )}
+                </b>{' '}
+                {e.detail.charAt(0).toLowerCase() + e.detail.slice(1)}
+                {e.count > 1 ? <span className="muted"> ×{e.count}</span> : null}
+              </div>
+              <time className="tl-time" dateTime={e.time.toISOString()} title={e.time.toLocaleString()}>
+                {ago(e.time.getTime() / 1000)}
+              </time>
+            </li>
+          );
+        })}
+      </ol>
+      {more}
     </>
   );
 }

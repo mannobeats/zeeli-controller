@@ -1,6 +1,7 @@
 import { IconX } from '@tabler/icons-react';
-import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from 'react';
+import { type CSSProperties, type KeyboardEvent as KeyEvent, type ReactNode, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { STEP, useLimit } from './limit.tsx';
 import { type Reorder, useReorder } from './reorder.tsx';
 
 export interface Column<T> {
@@ -36,13 +37,18 @@ interface Props<T> {
   label: string;
   /** A grip column to drag rows into a new order, or to move them with the keyboard. */
   reorder?: Reorder<T>;
+  /** Rows shown before a "Show more" footer; `false` for short lists that must show whole. Reorderable tables always show every row. */
+  limit?: number | false;
 }
 
 /**
  * Every list in the console. Rows are keyboard-focusable when clickable; with `bulk`,
- * each row gets a checkbox and shift-click selects a range; with `reorder`, a grip.
+ * each row gets a checkbox and shift-click selects a range; with `reorder`, a grip. Long lists
+ * stop at `limit` rows with a footer to see more.
  */
-export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, selectedKey, bulk, label, reorder }: Props<T>) {
+export function DataTable<T>({ rows: all, columns, rowKey, onRowClick, rowClass, selectedKey, bulk, label, reorder, ...rest }: Props<T>) {
+  // checking, shift-ranges and select-all act on the rows on screen
+  const { shown: rows, more } = useLimit(all, stepOf(rest.limit, reorder));
   const order = useReorder(rows, reorder, rowKey);
   const [checked, setChecked] = useState<Set<string>>(() => new Set());
   const anchor = useRef<number | null>(null);
@@ -52,17 +58,7 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, sele
   const allOn = rows.length > 0 && live.size === rows.length;
 
   const toggle = (index: number, shift: boolean) => {
-    const next = new Set(live);
-    const key = keys[index];
-    if (key === undefined) return;
-    const on = !next.has(key);
-    const [from, to] =
-      shift && anchor.current !== null ? [Math.min(anchor.current, index), Math.max(anchor.current, index)] : [index, index];
-    for (let i = from; i <= to; i++) {
-      const k = keys[i];
-      if (k !== undefined) on ? next.add(k) : next.delete(k);
-    }
-    setChecked(next);
+    setChecked(ticked(keys, live, index, shift, anchor.current));
     anchor.current = index;
   };
 
@@ -73,105 +69,41 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, sele
       {bulk && live.size > 0 ? <BulkBar count={live.size} actions={actions} picked={picked} clear={() => setChecked(new Set())} /> : null}
       <div className="table-wrap">
         <table className={`data-table ${order.tableClass}`.trim()} aria-label={label}>
-          <thead>
-            <tr>
-              {reorder ? (
-                <th className="c-grip">
-                  <span className="sr-only">Reorder</span>
-                </th>
-              ) : null}
-              {bulk ? (
-                <th className="c-check">
-                  <input
-                    type="checkbox"
-                    aria-label="Select all"
-                    checked={allOn}
-                    ref={(el) => {
-                      if (el) el.indeterminate = live.size > 0 && !allOn;
-                    }}
-                    onChange={() => setChecked(allOn ? new Set() : new Set(keys))}
-                  />
-                </th>
-              ) : null}
-              {columns.map((c) => (
-                <th
-                  key={c.key}
-                  className={[c.align === 'end' ? 'r' : '', c.size ? `col-${c.size}` : ''].filter(Boolean).join(' ') || undefined}
-                >
-                  {c.header}
-                </th>
-              ))}
-            </tr>
-          </thead>
+          <Head
+            columns={columns}
+            grip={Boolean(reorder)}
+            select={bulk ? { all: allOn, some: live.size > 0, toggle: () => setChecked(new Set(allOn ? [] : keys)) } : undefined}
+          />
           <tbody>
             {rows.map((row, i) => {
               const key = rowKey(row);
-              const lift = order.row(i);
-              const cls = [rowClass?.(row), selectedKey === key || live.has(key) ? 'sel' : '', lift.className].filter(Boolean).join(' ');
               return (
-                <tr
+                <Row
                   key={key}
-                  className={cls || undefined}
-                  style={lift.style}
-                  tabIndex={onRowClick ? 0 : undefined}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  onKeyDown={
-                    onRowClick
-                      ? (e) => {
-                          if (e.target !== e.currentTarget) return;
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            onRowClick(row);
-                          }
-                        }
-                      : undefined
-                  }
-                >
-                  {reorder ? (
-                    <td
-                      className="c-grip"
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        // picking up a row with Enter or Space mustn't open it
-                        if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
-                      }}
-                    >
-                      {order.handle(row, i)}
-                    </td>
-                  ) : null}
-                  {bulk ? (
-                    <td
-                      className="c-check"
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        // keep Enter and Space on the checkbox from opening the row; let Escape reach the bar
-                        if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
-                      }}
-                    >
+                  row={row}
+                  columns={columns}
+                  rowClass={rowClass}
+                  selected={selectedKey === key || live.has(key)}
+                  lift={order.row(i)}
+                  onOpen={onRowClick}
+                  grip={reorder && order.handle(row, i)}
+                  check={
+                    bulk && (
                       <input
                         type="checkbox"
                         aria-label={`Select row ${i + 1}`}
                         checked={live.has(key)}
                         onChange={(e) => toggle(i, (e.nativeEvent as MouseEvent).shiftKey)}
                       />
-                    </td>
-                  ) : null}
-                  {columns.map((c) => (
-                    <td
-                      key={c.key}
-                      className={[c.align === 'end' ? 'r' : '', c.phone ? `ph-${c.phone}` : 'ph-hide', c.className ?? '']
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      {c.cell(row)}
-                    </td>
-                  ))}
-                </tr>
+                    )
+                  }
+                />
               );
             })}
           </tbody>
         </table>
       </div>
+      {more}
       {reorder ? (
         <div className="sr-only" aria-live="assertive">
           {order.announcement}
@@ -180,6 +112,126 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, rowClass, sele
     </>
   );
 }
+
+/** Ticking row `index` flips it; with a shift-click from `from`, every row in between follows it. */
+function ticked(keys: string[], live: Set<string>, index: number, shift: boolean, from: number | null): Set<string> {
+  const next = new Set(live);
+  const on = !live.has(keys[index] ?? '');
+  const [a, b] = shift && from !== null ? [Math.min(from, index), Math.max(from, index)] : [index, index];
+  for (const k of keys.slice(a, b + 1)) on ? next.add(k) : next.delete(k);
+  return next;
+}
+
+function Row<T>({
+  row,
+  columns,
+  rowClass,
+  selected,
+  lift,
+  onOpen,
+  grip,
+  check,
+}: {
+  row: T;
+  columns: Column<T>[];
+  rowClass: ((row: T) => string | undefined) | undefined;
+  selected: boolean;
+  lift: { className?: string; style?: CSSProperties };
+  onOpen: ((row: T) => void) | undefined;
+  grip: ReactNode;
+  check: ReactNode;
+}) {
+  const className = [rowClass?.(row), selected ? 'sel' : '', lift.className].filter(Boolean).join(' ');
+  const open = onOpen && (() => onOpen(row));
+  return (
+    <tr
+      className={className || undefined}
+      style={lift.style}
+      tabIndex={open ? 0 : undefined}
+      onClick={open}
+      onKeyDown={open && ((e) => activate(e, open))}
+    >
+      {grip ? <OwnCell className="c-grip">{grip}</OwnCell> : null}
+      {check ? <OwnCell className="c-check">{check}</OwnCell> : null}
+      {columns.map((c) => (
+        <td
+          key={c.key}
+          className={[c.align === 'end' ? 'r' : '', c.phone ? `ph-${c.phone}` : 'ph-hide', c.className ?? ''].filter(Boolean).join(' ')}
+        >
+          {c.cell(row)}
+        </td>
+      ))}
+    </tr>
+  );
+}
+
+/** Enter or Space on the row itself opens it, like a click. */
+function activate(e: KeyEvent<HTMLElement>, open: () => void) {
+  if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  open();
+}
+
+/**
+ * A cell whose clicks and Enter or Space stay out of the row: picking up a row by its grip, or
+ * ticking its checkbox, mustn't open it. Escape still reaches the bulk bar.
+ */
+function OwnCell({ className, children }: { className: string; children: ReactNode }) {
+  return (
+    <td
+      className={className}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+      }}
+    >
+      {children}
+    </td>
+  );
+}
+
+function Head<T>({
+  columns,
+  grip,
+  select,
+}: {
+  columns: Column<T>[];
+  grip: boolean;
+  select: { all: boolean; some: boolean; toggle: () => void } | undefined;
+}) {
+  return (
+    <thead>
+      <tr>
+        {grip ? (
+          <th className="c-grip">
+            <span className="sr-only">Reorder</span>
+          </th>
+        ) : null}
+        {select ? (
+          <th className="c-check">
+            <input
+              type="checkbox"
+              aria-label="Select all"
+              checked={select.all}
+              ref={(el) => {
+                if (el) el.indeterminate = select.some && !select.all;
+              }}
+              onChange={select.toggle}
+            />
+          </th>
+        ) : null}
+        {columns.map((c) => (
+          <th key={c.key} className={[c.align === 'end' ? 'r' : '', c.size ? `col-${c.size}` : ''].filter(Boolean).join(' ') || undefined}>
+            {c.header}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+/** A reorderable table shows every row: dragging needs them all on screen. */
+const stepOf = (limit: number | false = STEP, reorder: unknown = null) => (reorder || limit === false ? Number.POSITIVE_INFINITY : limit);
 
 /**
  * What to do with the checked rows: a bar floating over the bottom of the screen, so it

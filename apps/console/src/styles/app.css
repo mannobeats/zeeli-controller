@@ -263,6 +263,16 @@ tr:hover .row-act, tr:focus-within .row-act { opacity: 1; }
 .search input { width: 100%; height: var(--h-md); padding: 0 12px 0 34px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--fill); font-size: var(--t-13); transition: border-color var(--t-fast), background-color var(--t-fast); }
 .search input::placeholder { color: var(--ink-4); }
 .search input:focus { outline: none; border-color: var(--brand); background: var(--surface); }
+.filter-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.filter-bar .search { flex: 0 1 280px; }
+.facet { appearance: none; height: var(--h-md); max-width: 220px; padding: 0 28px 0 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center; font-size: var(--t-13); color: var(--ink-2); cursor: pointer; text-overflow: ellipsis; transition: border-color var(--t-fast), background-color var(--t-fast); }
+.facet:hover { border-color: var(--line-strong); }
+.facet:focus { outline: none; border-color: var(--brand); }
+.facet.on { color: var(--select-ink); border-color: var(--brand); background-color: var(--surface); font-weight: 500; }
+.filter-count { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; font-size: var(--t-13); color: var(--ink-3); }
+.filter-clear { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-2); font-size: var(--t-13); cursor: pointer; }
+.filter-clear:hover { background: var(--hover); color: var(--ink); }
+.more-rows { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 12px 0 2px; font-size: var(--t-13); color: var(--ink-3); border-top: 1px solid var(--line); }
 
 .btn { height: var(--h-md); padding: 0 14px; border-radius: var(--radius); border: 0; font-size: var(--t-13); font-weight: 500; line-height: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; white-space: nowrap; text-decoration: none; transition: background-color var(--t-fast), color var(--t-fast), transform var(--t-fast) var(--ease); }
 .btn:active { transform: scale(.98); }

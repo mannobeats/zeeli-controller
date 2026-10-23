@@ -23,10 +23,10 @@ test('search covers names and descriptions, and long lists page', async () => {
   expect(await screen.findByRole('button', { name: 'Available 151' })).toBeTruthy();
   await user.clear(search());
   await user.type(search(), 'kmod-demo');
-  expect(await screen.findByText('Showing 100 of 140. Search to narrow the list.')).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'Show more' }));
+  expect(await screen.findByText('100 of 140')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Show 40 more' }));
   expect(await row('kmod-demo-140')).toBeTruthy();
-  expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
+  expect(screen.queryByRole('button', { name: /more$/ })).toBeNull();
   await user.type(search(), 'zzz');
   expect(screen.getByText('No package matches “kmod-demozzz”.')).toBeTruthy();
 });
