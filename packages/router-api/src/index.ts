@@ -7,6 +7,7 @@ export * from './domain/device.ts';
 export * from './domain/dns.ts';
 export * from './domain/family.ts';
 export * from './domain/internet.ts';
+export * from './domain/names.ts';
 export * from './domain/network-extras.ts';
 export * from './domain/networks.ts';
 export * from './domain/openwrt.ts';

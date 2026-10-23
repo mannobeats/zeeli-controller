@@ -1,11 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
-import { type Client, type DeviceClass, inSubnet, KIB_PER_MBPS } from '@zeeli/router-api';
+import { type Client, type DeviceClass, KIB_PER_MBPS } from '@zeeli/router-api';
 import { type ReactNode, useState } from 'react';
 import { useClients, useWrite } from '../../api/queries.ts';
 import { api } from '../../api/router.ts';
 import { navigate } from '../../app/useHashRoute.ts';
 import { DEVICE_CLASS_LABELS } from '../../lib/devices.ts';
-import { errorMessage } from '../../lib/errors.ts';
 import { ago, bytes, rate } from '../../lib/format.ts';
 import { useSamples } from '../../lib/useSamples.ts';
 import { Button } from '../../ui/Button.tsx';
@@ -14,8 +12,11 @@ import { Row2, SelectField, SwitchRow, TextField } from '../../ui/fields.tsx';
 import { KeyValues } from '../../ui/Layout.tsx';
 import { Sheet } from '../../ui/Sheet.tsx';
 import { Sparkline } from '../../ui/Sparkline.tsx';
+import { DeviceAddress } from './DeviceAddress.tsx';
 import { DeviceGroups } from './DeviceGroups.tsx';
 import { DeviceHistory } from './DeviceHistory.tsx';
+import { useNewDevices } from './localNames.ts';
+import { NewDeviceCard } from './Onboarding.tsx';
 
 const toMbps = (kib: number) => Number((kib / KIB_PER_MBPS).toFixed(1));
 
@@ -27,8 +28,10 @@ interface Props {
 }
 
 export function DeviceSheet({ client, ...rest }: Props) {
+  const isNew = useNewDevices().some((c) => c.mac === client?.mac);
   if (!client) return null;
-  return <DeviceForm key={client.mac} client={client} {...rest} />;
+  // starting over when it stops being new, so the panel never saves the name it had before
+  return <DeviceForm key={`${client.mac}${isNew}`} client={client} isNew={isNew} {...rest} />;
 }
 
 /** Everything the panel saves together: name, type and speed limit. */
@@ -44,11 +47,11 @@ function useDeviceEdits(client: Client) {
     if (name !== (client.alias || client.name) || deviceClass !== client.deviceClass)
       await api.clients.setInfo(client.mac, name.trim(), deviceClass);
     if (limDown !== toMbps(client.limitRx) || limUp !== toMbps(client.limitTx)) await api.clients.setSpeedLimit(client.mac, limDown, limUp);
-  }, [['clients']]);
+  }, [['clients'], ['names']]);
   return { name, setName, deviceClass, setDeviceClass, limited, setLimited, down, setDown, up, setUp, save };
 }
 
-function DeviceForm({ client, onClose, onBlock, onForget }: Props & { client: Client }) {
+function DeviceForm({ client, isNew, onClose, onBlock, onForget }: Props & { client: Client; isNew: boolean }) {
   const { toast } = useFeedback();
   const edits = useDeviceEdits(client);
   return (
@@ -63,14 +66,17 @@ function DeviceForm({ client, onClose, onBlock, onForget }: Props & { client: Cl
         toast(`Saved ${edits.name || client.name}`);
       }}
     >
+      {isNew ? <NewDeviceCard client={client} /> : null}
       <LiveRates client={client} />
-      <section>
-        <h3>Name and type</h3>
-        <div className="stack-sm">
-          <TextField label="Name" value={edits.name} onChange={edits.setName} placeholder={client.hostname || client.mac} />
-          <SelectField label="Device type" value={edits.deviceClass} options={DEVICE_CLASS_LABELS} onChange={edits.setDeviceClass} />
-        </div>
-      </section>
+      {isNew ? null : (
+        <section>
+          <h3>Name and type</h3>
+          <div className="stack-sm">
+            <TextField label="Name" value={edits.name} onChange={edits.setName} placeholder={client.hostname || client.mac} />
+            <SelectField label="Device type" value={edits.deviceClass} options={DEVICE_CLASS_LABELS} onChange={edits.setDeviceClass} />
+          </div>
+        </section>
+      )}
       <section>
         <h3>Speed limit</h3>
         <SwitchRow label="Limit this device" checked={edits.limited} onChange={edits.setLimited} />
@@ -82,7 +88,7 @@ function DeviceForm({ client, onClose, onBlock, onForget }: Props & { client: Cl
         ) : null}
       </section>
       <DeviceGroups client={client} />
-      <Address client={client} />
+      <DeviceAddress client={client} />
       <DeviceHistory client={client} />
       <Details client={client} onForget={onForget} />
     </Sheet>
@@ -100,33 +106,6 @@ function LiveRates({ client }: { client: Client }) {
         <Rate label="Upload" value={now.online ? now.tx : null} kind="up" />
       </div>
       {now.online ? <Sparkline samples={samples} width={380} height={64} label="Traffic since this panel opened" /> : null}
-    </section>
-  );
-}
-
-function Address({ client }: { client: Client }) {
-  const { toast } = useFeedback();
-  const reservations = useQuery({ queryKey: ['reservations'], queryFn: api.networks.reservations });
-  const nets = useQuery({ queryKey: ['networks'], queryFn: api.networks.list });
-  const reserved = reservations.data?.find((r) => r.mac === client.mac);
-  const toggle = useWrite(async () => {
-    if (reserved) return api.networks.unreserve(reserved);
-    const net = nets.data?.find((n) => inSubnet(client.ip, n.ip, n.netmask));
-    if (!net) throw new Error('This device’s address isn’t in any of your networks.');
-    return api.networks.reserve({ mac: client.mac, ip: client.ip, name: client.name, network: net.id });
-  }, [['reservations']]);
-  return (
-    <section>
-      <h3>Address</h3>
-      <div className="field-row">
-        <div>
-          <span className="mono">{reserved?.ip ?? client.ip}</span>
-          <div className="hint">{reserved ? 'Reserved: this device always gets this address' : 'Assigned by DHCP, can change'}</div>
-        </div>
-        <Button busy={toggle.isPending} onClick={() => toggle.mutateAsync(undefined).catch((e) => toast(errorMessage(e)))}>
-          {reserved ? 'Remove reservation' : 'Reserve this IP'}
-        </Button>
-      </div>
     </section>
   );
 }

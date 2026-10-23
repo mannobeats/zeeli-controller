@@ -75,6 +75,11 @@ function EventList({ events, onAck, step }: { events: HistoryEvent[]; onAck?: (e
                 <time className="tl-time" dateTime={e.time.toISOString()} title={e.time.toLocaleString()}>
                   {ago(e.time.getTime() / 1000)}
                 </time>
+                {e.kind === 'device.new' ? (
+                  <Button variant="strong" onClick={() => navigate(eventLink(e))}>
+                    Set up
+                  </Button>
+                ) : null}
                 {onAck ? (
                   <Button variant="ghost" onClick={() => onAck(e)} aria-label={`Acknowledge: ${eventText(e, nameOf)}`}>
                     Acknowledge
