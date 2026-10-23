@@ -297,3 +297,15 @@ body:has(.bulk-bar) .toast { bottom: 80px; }
 .bell { position: relative; }
 .bell .badge { position: absolute; top: -2px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; box-shadow: 0 0 0 2px var(--frame); border-radius: 9px; background: var(--brand); color: var(--on-brand); font-size: var(--t-12); font-weight: 600; line-height: 18px; text-align: center; }
 .tl-end { display: flex; align-items: center; gap: 12px; }
+/* ---------- policies and groups ---------- */
+.sentence { color: var(--ink-2); white-space: normal; }
+.sentence b { color: var(--ink); font-weight: 600; }
+.data-table td.pol-cell { white-space: normal; padding-top: 8px; padding-bottom: 8px; }
+.pol-name { display: block; margin-top: 2px; font-size: var(--t-12); color: var(--ink-3); }
+.pol-preview { margin: 0; padding: 14px 16px; border-radius: var(--radius-lg); border: 1px solid var(--brand-line); background: var(--brand-soft); font-size: var(--t-16); line-height: 1.45; }
+.sheet-body > .pol-preview { margin: 0; }
+.pol-quick { display: flex; flex-wrap: wrap; gap: 8px; }
+.pol-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.pol-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: var(--t-13); }
+.page-note { margin: 0; color: var(--ink-3); font-size: var(--t-13); }
+.page-note .link { font-size: inherit; }

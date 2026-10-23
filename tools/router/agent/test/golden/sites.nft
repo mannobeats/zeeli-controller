@@ -1,0 +1,57 @@
+table inet zeeli_check {
+# Written by the Zeeli agent from your policies. Changes made here are overwritten.
+
+	set zeeli_g_a1b2c3 {
+		type ether_addr
+		elements = {
+			02:5e:e1:10:14:c8,
+			02:5e:e1:17:2b:c1,
+			02:5e:e1:24:33:d0,
+		}
+	}
+
+	set zeeli_c_000002 {
+		type ether_addr
+		elements = {
+			02:5e:e1:31:90:f4,
+		}
+	}
+
+	set zeeli_s4_000002 {
+		type ipv4_addr
+		size 4096
+		timeout 3600s
+		flags timeout
+	}
+
+	set zeeli_s6_000002 {
+		type ipv6_addr
+		size 4096
+		timeout 3600s
+		flags timeout
+	}
+
+	chain zeeli_p_000002 {
+		ether saddr @zeeli_g_a1b2c3 ip daddr @zeeli_s4_000002 counter drop
+		ether saddr @zeeli_g_a1b2c3 ip6 daddr @zeeli_s6_000002 counter drop
+		ether saddr @zeeli_c_000002 ip daddr @zeeli_s4_000002 counter drop
+		ether saddr @zeeli_c_000002 ip6 daddr @zeeli_s6_000002 counter drop
+	}
+
+	chain zeeli_d_000002 {
+		ether saddr @zeeli_g_a1b2c3 udp dport 53 redirect to :53
+		ether saddr @zeeli_g_a1b2c3 tcp dport 53 redirect to :53
+		ether saddr @zeeli_c_000002 udp dport 53 redirect to :53
+		ether saddr @zeeli_c_000002 tcp dport 53 redirect to :53
+	}
+
+	chain zeeli_dns {
+		type nat hook prerouting priority -101; policy accept;
+		jump zeeli_d_000002
+	}
+
+	chain zeeli_forward {
+		type filter hook forward priority -1; policy accept;
+		jump zeeli_p_000002
+	}
+}

@@ -69,7 +69,14 @@ export const SECTIONS: Section[] = [
     title: 'Clients',
     icon: IconDevices,
     panel: true,
-    groups: [{ pages: [{ id: 'clients', title: 'Clients', keywords: 'devices block forget rename limit' }] }],
+    groups: [
+      {
+        pages: [
+          { id: 'clients', title: 'Clients', keywords: 'devices block forget rename limit' },
+          { id: 'groups', title: 'Groups', keywords: 'people kids devices sets members' },
+        ],
+      },
+    ],
   },
   {
     id: 'insights',
@@ -126,6 +133,7 @@ export const SECTIONS: Section[] = [
     groups: [
       {
         pages: [
+          { id: 'policies', title: 'Policies', keywords: 'block pause allow limit speed schedule bedtime sites kids groups' },
           { id: 'firewall', title: 'Firewall rules', keywords: 'allow drop reject zone' },
           { id: 'forwarding', title: 'Port forwarding', keywords: 'nat open port' },
           { id: 'dns', title: 'DNS and filtering', keywords: 'adguard encrypted dns doh dot rebinding' },

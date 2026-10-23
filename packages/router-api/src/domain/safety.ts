@@ -46,15 +46,15 @@ export interface BackupInspection {
 
 /* ---------- firewall through the agent ---------- */
 
-export type Policy = 'ACCEPT' | 'REJECT' | 'DROP';
+export type ZonePolicy = 'ACCEPT' | 'REJECT' | 'DROP';
 /** `service` sections belong to router services and are read-only here. */
 export type Owner = 'service' | 'default' | 'custom';
 
 export interface AgentZone {
   name: string;
-  input: Policy;
-  output: Policy;
-  forward: Policy;
+  input: ZonePolicy;
+  output: ZonePolicy;
+  forward: ZonePolicy;
   masquerade: boolean;
   mssClamp: boolean;
   networks: string[];
@@ -80,7 +80,7 @@ export interface AgentRule {
   destPort: string;
   srcIp: string;
   destIp: string;
-  target: Policy;
+  target: ZonePolicy;
   family: '' | 'ipv4' | 'ipv6';
   enabled: boolean;
   owner: Owner;

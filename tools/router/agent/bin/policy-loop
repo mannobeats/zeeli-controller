@@ -1,0 +1,3 @@
+#!/bin/sh
+# The loop behind the zeeli-policies service: reconcile the policies every 30 seconds.
+exec ucode -e "import { serve } from 'zeeli.policyapply'; serve();"

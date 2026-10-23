@@ -1,11 +1,14 @@
 import type { Transport } from '../transport/types.ts';
 import type { openwrt as openwrtFactory, UciSection } from './openwrt.ts';
+import type { policies as policiesFactory } from './policies.ts';
+import type { system as systemFactory } from './system.ts';
 
 /**
  * Profiles, bedtime and content blocking are the firmware's parental-control service.
- * Pause is ours: a time-limited OpenWrt firewall rule (fw4 start_date/stop_date with
- * date and time together) that rejects the profile's devices until the time passes, so
- * the router lifts it on its own even with the console closed.
+ * Pause is ours. With the Zeeli agent it is a policy that ends by itself on the router, the
+ * same way on every router and with no Advanced unlock. Without the agent it falls back to a
+ * time-limited OpenWrt firewall rule (fw4 start_date/stop_date with date and time together),
+ * which needs the unlock.
  */
 
 export const FAMILY_CATEGORIES = {
@@ -48,12 +51,18 @@ export interface AppEntry {
 
 export interface Pause {
   profileId: string;
+  /** The OpenWrt rule's section, or the agent policy's id when `agent` is set. */
   section: string;
   /** null: until resumed */
   until: Date | null;
+  /** Made by the Zeeli agent as a policy, not as an OpenWrt rule. */
+  agent?: boolean;
 }
 
 const PAUSE_TAG = 'flint-pause:';
+/** The tag the agent keeps on a profile's pause policy. */
+const AGENT_TAG = 'family:';
+const AGENT_CHECK_MS = 30_000;
 const FOREVER_YEAR = 2037;
 
 interface RawGroup {
@@ -131,9 +140,69 @@ export function bedtimeAt(p: Profile, d: Date): { until: number } | null {
   return null;
 }
 
-export const family = (t: Transport, ow: ReturnType<typeof openwrtFactory>) => {
+export const family = (
+  t: Transport,
+  ow: ReturnType<typeof openwrtFactory>,
+  pol: ReturnType<typeof policiesFactory>,
+  sys: ReturnType<typeof systemFactory>,
+  agentInstalled: () => Promise<boolean>,
+) => {
   const pauseRules = async (): Promise<UciSection[]> =>
     (await ow.uci.sections('firewall', 'rule')).filter((r) => String(r.name ?? '').startsWith(PAUSE_TAG));
+
+  // asked at most every 30 seconds: pauses are read on every refresh of the page
+  let checked: { at: number; value: boolean } | undefined;
+  const hasAgent = async () => {
+    if (!checked || Date.now() - checked.at > AGENT_CHECK_MS) checked = { at: Date.now(), value: await agentInstalled() };
+    return checked.value;
+  };
+
+  const agentPauses = async (): Promise<Pause[]> => {
+    const [list, s] = await Promise.all([pol.list(), sys.status()]);
+    const at = Date.now();
+    return list.policies
+      .filter((p) => p.tag.startsWith(AGENT_TAG))
+      .map((p) => ({
+        profileId: p.tag.slice(AGENT_TAG.length),
+        section: p.id,
+        until: p.until === null ? null : routerClock(p.until, s.tzoffset, at, at),
+        agent: true,
+      }));
+  };
+
+  /** An OpenWrt pause rule. With the agent these are only left over from before it was installed, so a locked router isn't an error. */
+  const legacyPauses = async (tolerant: boolean): Promise<Pause[]> => {
+    const rules = await (tolerant ? pauseRules().catch(() => []) : pauseRules());
+    return rules.map((r) => {
+      const until = r.stop_date ? parseStamp(String(r.stop_date), r.stop_time ? String(r.stop_time) : undefined) : null;
+      return {
+        profileId: String(r.name).slice(PAUSE_TAG.length),
+        section: r['.name'],
+        until: until && until.getUTCFullYear() >= FOREVER_YEAR ? null : until,
+      };
+    });
+  };
+
+  const agentPause = async (p: Profile, now: Date, until: Date | null) => {
+    const tag = AGENT_TAG + p.id;
+    const who = p.macs.map((id) => ({ type: 'client' as const, id }));
+    const name = `${p.name} paused`;
+    if (until)
+      return pol.pause({ who, minutes: Math.max(1, Math.ceil((until.getTime() - now.getTime()) / 60_000)), name, what: 'everything', tag });
+    // until resumed: an ordinary block policy with no end
+    const before = (await pol.list()).policies.filter((x) => x.tag === tag);
+    for (const x of before) await pol.remove(x.id);
+    return pol.create({ name, who, what: { kind: 'everything' }, when: { kind: 'always' }, action: { kind: 'block' }, tag });
+  };
+
+  const resume = async (pauses: Pause[]) => {
+    for (const x of pauses.filter((y) => y.agent)) await pol.remove(x.section);
+    const old = pauses.filter((y) => !y.agent);
+    if (old.length)
+      await ow.uci.change('firewall', async () => {
+        for (const x of old) await ow.uci.remove('firewall', x.section);
+      });
+  };
 
   return {
     async config(): Promise<{ enabled: boolean; profiles: Profile[] }> {
@@ -152,17 +221,16 @@ export const family = (t: Transport, ow: ReturnType<typeof openwrtFactory>) => {
     remove: (id: string) => t.call('parental-control', 'remove_group', { id }),
 
     async pauses(): Promise<Pause[]> {
-      return (await pauseRules()).map((r) => {
-        const until = r.stop_date ? parseStamp(String(r.stop_date), r.stop_time ? String(r.stop_time) : undefined) : null;
-        return {
-          profileId: String(r.name).slice(PAUSE_TAG.length),
-          section: r['.name'],
-          until: until && until.getUTCFullYear() >= FOREVER_YEAR ? null : until,
-        };
-      });
+      if (!(await hasAgent())) return legacyPauses(false);
+      return [...(await agentPauses()), ...(await legacyPauses(true))];
     },
     /** `now` and `until` are router-clock dates (see `routerClock`); `until` null pauses until resumed. */
-    pause(p: Profile, now: Date, until: Date | null, existing?: Pause) {
+    async pause(p: Profile, now: Date, until: Date | null, existing?: Pause) {
+      if (await hasAgent()) {
+        // a pause from before the agent was installed would otherwise keep running beside the new one
+        if (existing && !existing.agent) await resume([existing]);
+        return agentPause(p, now, until);
+      }
       const end = until ?? new Date(Date.UTC(FOREVER_YEAR, 11, 31, 23, 59, 59));
       return ow.uci.change('firewall', async () => {
         if (existing) await ow.uci.remove('firewall', existing.section);
@@ -181,9 +249,6 @@ export const family = (t: Transport, ow: ReturnType<typeof openwrtFactory>) => {
         });
       });
     },
-    resume: (pauses: Pause[]) =>
-      ow.uci.change('firewall', async () => {
-        for (const x of pauses) await ow.uci.remove('firewall', x.section);
-      }),
+    resume,
   };
 };

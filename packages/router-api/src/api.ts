@@ -9,6 +9,7 @@ import { internet } from './domain/internet.ts';
 import { networkExtras } from './domain/network-extras.ts';
 import { networks } from './domain/networks.ts';
 import { openwrt } from './domain/openwrt.ts';
+import { policies } from './domain/policies.ts';
 import { safety } from './domain/safety.ts';
 import { security } from './domain/security.ts';
 import { stats } from './domain/stats.ts';
@@ -22,10 +23,13 @@ import type { Transport } from './transport/types.ts';
 /** Everything the interface can ask a router, grouped by area. */
 export function createRouterApi(transport: Transport) {
   const ow = openwrt(transport);
+  const agentApi = agent(transport);
+  const policyApi = policies(transport);
+  const systemApi = system(transport);
   return {
     transport,
     session: transport.session,
-    system: system(transport),
+    system: systemApi,
     device: device(transport),
     clients: clients(transport),
     networks: networks(transport),
@@ -37,13 +41,14 @@ export function createRouterApi(transport: Transport) {
     security: security(transport),
     dns: dns(transport),
     vpn: vpn(transport),
-    family: family(transport, ow),
+    family: family(transport, ow, policyApi, systemApi, async () => (await agentApi.version()) !== null),
     traffic: traffic(transport),
     apps: apps(transport, ow),
     activity: activity(transport),
-    agent: agent(transport),
+    agent: agentApi,
     safety: safety(transport),
     stats: stats(transport),
+    policies: policyApi,
   };
 }
 

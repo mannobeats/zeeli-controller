@@ -21,6 +21,7 @@ export const PAGE_COMPONENTS: Record<string, LazyExoticComponent<ComponentType>>
   alerts: from(() => import('../features/alerts/AlertsPage.tsx')),
   topology: from(() => import('../features/topology/TopologyPage.tsx')),
   clients: from(() => import('../features/clients/ClientsPage.tsx')),
+  groups: from(() => import('../features/clients/GroupsPage.tsx')),
   traffic: from(insights, 'TrafficPage'),
   'dns-insights': from(insights, 'DnsInsightsPage'),
 
@@ -39,6 +40,7 @@ export const PAGE_COMPONENTS: Record<string, LazyExoticComponent<ComponentType>>
   accel: from(advanced, 'AccelPage'),
   edgerouter: from(advanced, 'EdgeRouterPage'),
 
+  policies: from(() => import('../features/policies/PoliciesPage.tsx')),
   firewall: from(() => import('../features/firewall/FirewallPage.tsx')),
   forwarding: from(security, 'ForwardingPage'),
   dns: from(() => import('../features/dns/DnsPage.tsx')),
