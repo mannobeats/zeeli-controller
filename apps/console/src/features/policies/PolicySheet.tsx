@@ -117,6 +117,12 @@ function ActionFields({ form, set }: { form: PolicyForm; set: Setter }) {
       <Segmented label="What the policy does" value={form.action} onChange={set('action')} options={ACTIONS} />
       {form.action === 'allow' ? <p className="kicker">An allow above a block is an exception to it. Move it up the list.</p> : null}
       {form.action === 'limit' ? (
+        <p className="kicker">
+          The first speed limit turns on the router’s traffic shaping, the same as the GL panel’s per-device limit. All traffic then goes
+          through a software queue, which can lower top speed on very fast links.
+        </p>
+      ) : null}
+      {form.action === 'limit' ? (
         <Row2>
           <TextField label="Download" unit="Mbps" inputMode="decimal" value={form.down} onChange={set('down')} />
           <TextField label="Upload" unit="Mbps" inputMode="decimal" value={form.up} onChange={set('up')} />

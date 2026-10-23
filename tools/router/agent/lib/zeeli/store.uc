@@ -152,6 +152,19 @@ function zoneNames(c) {
 	return names;
 }
 
+/**
+ * Zones that face the internet or another upstream: `wan`, and any that masquerade (VPN clients,
+ * Tailscale). A policy "for" one of them would cut off everyone behind it, so they aren't networks
+ * a policy can be for.
+ */
+function uplinkZones(c) {
+	const names = [];
+	c.foreach('firewall', 'zone', (z) => {
+		if (isZoneName(z.name) && (z.name == 'wan' || z.masq == '1' || z.masq6 == '1')) push(names, z.name);
+	});
+	return names;
+}
+
 // this ucode needs exports listed rather than marked inline
 export { LIMITS, open, newId, readGroups, readPolicies, writeGroup, writePolicy, removeGroup, removePolicy, commit };
-export { isNumber, isId, checkName, checkMacs, isDomain, isZoneName, zoneNames };
+export { isNumber, isId, checkName, checkMacs, isDomain, isZoneName, zoneNames, uplinkZones };

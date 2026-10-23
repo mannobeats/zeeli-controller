@@ -8,6 +8,8 @@
 //   - one chain per policy, holding that policy's rules while it applies and nothing while it
 //     doesn't, so a schedule or an expiry only ever changes chain bodies
 //   - `zeeli_forward`, a base chain at priority -1 that jumps to the policy chains in order
+//   - `zeeli_rev`, a chain nothing jumps to, whose one rule carries a hash of the rest of the file
+//     in its comment, so the agent can read back from the live ruleset which file fw4 really loaded
 //   - for "sites" policies, a chain that sends the covered devices' DNS to dnsmasq (see below),
 //     hooked from `zeeli_dns`, a NAT base chain that runs before GL's own DNS redirects
 // A zone's devices are written out ("br-lan"), not as fw4's `$<zone>_devices` defines: a define for
@@ -56,6 +58,21 @@ function isActive(policy, now) {
 
 const lower = (macs) => uniq(map(macs, (m) => lc(m)));
 
+/** FNV-1a over the bytes, as 8 hex digits. Not a security hash: it tells two versions of the file apart. */
+function revisionOf(text) {
+	let h = 2166136261;
+	for (let i = 0; i < length(text); i++) h = ((h ^ ord(text, i)) * 16777619) & 0xffffffff;
+	return sprintf('%08x', h);
+}
+
+/** The revision a file or `nft list chain inet fw4 zeeli_rev` carries, or null. */
+function revisionIn(text) {
+	const m = match(text ?? '', /zeeli-rev:([0-9a-f]{8})/);
+	return m ? m[1] : null;
+}
+
+const revisionRule = (rev) => `counter comment "zeeli-rev:${rev}"`;
+
 /** `{ "eth0", "sta1" }` for a list of devices. */
 const literal = (devs) => `{ ${join(', ', map(devs, (d) => `"${d}"`))} }`;
 
@@ -66,7 +83,7 @@ function elements(items) {
 }
 
 /** Source matches for each "who" of a policy, and the MACs it covers. */
-function sources(policy, groupsById, zones, out, used) {
+function sources(policy, groupsById, zones, uplinks, out, used) {
 	const matches = [], macs = [], clients = [];
 	for (let w in policy.who) {
 		if (w.type == 'group') {
@@ -78,7 +95,9 @@ function sources(policy, groupsById, zones, out, used) {
 		} else if (w.type == 'client') {
 			push(clients, w.id);
 		} else if (w.type == 'network') {
-			if (length(zones[w.id])) push(matches, `iifname ${literal(zones[w.id])}`);
+			if (index(uplinks, w.id) >= 0)
+				push(out.warnings, `${policy.name}: “${w.id}” is an uplink, not a network of your own, so that part is skipped.`);
+			else if (length(zones[w.id])) push(matches, `iifname ${literal(zones[w.id])}`);
 			else push(out.warnings, `${policy.name}: the network “${w.id}” isn’t in the firewall, so that part is skipped.`);
 		}
 	}
@@ -114,12 +133,17 @@ function redirects(srcs) {
 	return lines;
 }
 
-/** Rule lines for a policy that applies now: every source against every destination. */
+/**
+ * Rule lines for a policy that applies now: every source against every destination. Only the
+ * original direction of a connection is matched, so the blocked side can't start connections
+ * but still answers the ones the other side opened ("IoT can't reach LAN" is not "IoT can't
+ * reply to LAN").
+ */
 function rulesFor(policy, srcs, dsts) {
 	const verdict = policy.action.kind == 'allow' ? 'accept' : 'drop';
 	const lines = [];
 	for (let s in srcs)
-		for (let d in dsts) push(lines, join(' ', filter([s, d, 'counter', verdict], (x) => x != '')));
+		for (let d in dsts) push(lines, join(' ', filter([s, d, 'ct direction original', 'counter', verdict], (x) => x != '')));
 	return lines;
 }
 
@@ -144,7 +168,7 @@ function compile(input) {
 
 	for (let p in policies) {
 		const on = isActive(p, input.now);
-		const src = sources(p, groupsById, input.zones, out, p.action.kind == 'limit' ? null : used);
+		const src = sources(p, groupsById, input.zones, input.internet, out, p.action.kind == 'limit' ? null : used);
 		if (on) push(out.active, p.id);
 
 		if (p.action.kind == 'limit') {
@@ -182,8 +206,8 @@ function renderSet(s) {
 	return `\tset ${s.name} {\n\t\ttype ${type}\n\t\tsize ${SITE_SET_SIZE}\n\t\ttimeout ${SITE_TIMEOUT}s\n\t\tflags timeout\n\t}\n`;
 }
 
-/** The include file for a compiled set of policies. */
-function render(c) {
+/** The include file's content before its revision chain is added. */
+function renderBody(c) {
 	const parts = ['# Written by the Zeeli agent from your policies. Changes made here are overwritten.\n\n'];
 	for (let s in c.sets) push(parts, renderSet(s), '\n');
 	for (let ch in [...c.chains, ...c.dns])
@@ -199,6 +223,20 @@ function render(c) {
 	return join('', parts);
 }
 
+/** The include file for a compiled set of policies. */
+function render(c) {
+	const body = renderBody(c);
+	return `${body}\n\tchain zeeli_rev {\n\t\t${revisionRule(revisionOf(body))}\n\t}\n`;
+}
+
+/** The sets and chains the file declares, by name: what `nft list table inet fw4` should hold of ours, and no more. */
+function ownedNames(c) {
+	return {
+		chains: ['zeeli_forward', 'zeeli_rev', ...(length(c.dns) ? ['zeeli_dns'] : []), ...map([...c.chains, ...c.dns], (ch) => ch.name)],
+		sets: map(c.sets, (s) => s.name),
+	};
+}
+
 /**
  * The file without the rules inside policy chains. Two files with the same structure differ
  * only by what a schedule, an expiry or a change of devices switches on and off, which can
@@ -208,7 +246,7 @@ function structureOf(text) {
 	const keep = [];
 	let inside = false;
 	for (let line in split(text, '\n')) {
-		if (match(line, /^\tchain zeeli_[pd]_[0-9a-f]+ \{$/)) inside = true;
+		if (match(line, /^\tchain (zeeli_[pd]_[0-9a-f]+|zeeli_rev) \{$/)) inside = true;
 		else if (inside && line == '\t}') inside = false;
 		else if (inside) continue;
 		push(keep, line);
@@ -223,6 +261,7 @@ function liveCommands(c) {
 		push(lines, `flush chain inet fw4 ${ch.name}\n`);
 		for (let r in ch.rules) push(lines, `add rule inet fw4 ${ch.name} ${r}\n`);
 	}
+	push(lines, `flush chain inet fw4 zeeli_rev\nadd rule inet fw4 zeeli_rev ${revisionRule(revisionOf(renderBody(c)))}\n`);
 	return join('', lines);
 }
 
@@ -230,4 +269,4 @@ function liveCommands(c) {
 const checkable = (text) => `table inet zeeli_check {\n${text}}\n`;
 
 // this ucode needs exports listed rather than marked inline
-export { toMinutes, clock, inWindow, isActive, compile, render, structureOf, liveCommands, checkable };
+export { toMinutes, clock, inWindow, isActive, compile, render, structureOf, liveCommands, checkable, revisionIn, ownedNames };

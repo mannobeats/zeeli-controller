@@ -4,11 +4,14 @@
 
 import { readfile, unlink, writefile } from 'fs';
 import { cursor, paths } from 'zeeli.common';
-import { includePath, sys } from 'zeeli.policyapply';
+import { includePath, sandboxAnswer, sys } from 'zeeli.policyapply';
 
 /** Thursday 22 October 2026, 12:00 UTC, which the tests treat as the router's local time. */
 const NOON = 1792627200 + 12 * 3600;
 const realReload = sys.reload;
+
+/** The router as it normally answers; tests that make one command fail fall back to this. */
+const normal = sandboxAnswer;
 
 function reset() {
 	const fixtures = `${getenv('ZEELI_AGENT')}/test/fixtures/be9300`;
@@ -19,7 +22,7 @@ function reset() {
 	unlink(`${paths.state}/policies.json`);
 	sys.calls = [];
 	sys.reload = realReload;
-	sys.answer = (argv) => ({ code: 0, stdout: '' });
+	sys.answer = normal;
 	sys.now = () => NOON;
 	sys.breakdown = gmtime;
 	sys.neighbours = () => ({});
@@ -40,4 +43,4 @@ const included = () => readfile(includePath());
 const mac = (i) => sprintf('02:00:00:00:%02x:%02x', i / 256, i % 256);
 
 // this ucode needs exports listed rather than marked inline
-export { NOON, reset, uci, sections, ran, included, mac };
+export { NOON, normal, reset, uci, sections, ran, included, mac };

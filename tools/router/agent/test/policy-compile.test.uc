@@ -100,8 +100,8 @@ test('an allow policy blocks nobody', () => {
 test('the internet is every masquerading zone the router names; none means no rules', () => {
 	const two = nft.compile({ ...base, zones: { ...ZONES, wgclient: ['wgclient'] }, internet: ['wan', 'wgclient'], policies: [policy('000001', 10, { who: [client(TV)] })], now: at(12, 0) });
 	eq(two.chains[0].rules, [
-		'ether saddr @zeeli_c_000001 oifname { "eth0", "sta1" } counter drop',
-		'ether saddr @zeeli_c_000001 oifname { "wgclient" } counter drop',
+		'ether saddr @zeeli_c_000001 oifname { "eth0", "sta1" } ct direction original counter drop',
+		'ether saddr @zeeli_c_000001 oifname { "wgclient" } ct direction original counter drop',
 	]);
 	const none = nft.compile({ ...base, internet: [], policies: [policy('000001', 10, { who: [client(TV)] })], now: at(12, 0) });
 	eq(none.chains[0].rules, []);
@@ -176,13 +176,46 @@ test('structureOf ignores what is inside policy chains and nothing else', () => 
 	ok(nft.structureOf(bigger) != nft.structureOf(day), 'and so is a group’s membership');
 });
 
-test('live commands swap in each chain', () => {
+test('live commands swap in each chain and the revision', () => {
 	const c = nft.compile({ ...base, policies: [bedtime()], now: at(23, 0) });
-	eq(nft.liveCommands(c),
-		'flush chain inet fw4 zeeli_p_000001\n' +
-		'add rule inet fw4 zeeli_p_000001 ether saddr @zeeli_g_a1b2c3 oifname { "eth0", "sta1" } counter drop\n');
+	const live = nft.liveCommands(c);
+	ok(index(live, 'flush chain inet fw4 zeeli_p_000001\nadd rule inet fw4 zeeli_p_000001 ether saddr @zeeli_g_a1b2c3 oifname { "eth0", "sta1" } ct direction original counter drop\n') == 0, live);
+	ok(match(live, /flush chain inet fw4 zeeli_rev\nadd rule inet fw4 zeeli_rev counter comment "zeeli-rev:[0-9a-f]{8}"\n$/));
 	const off = nft.compile({ ...base, policies: [bedtime()], now: at(12, 0) });
-	eq(nft.liveCommands(off), 'flush chain inet fw4 zeeli_p_000001\n');
+	ok(index(nft.liveCommands(off), 'flush chain inet fw4 zeeli_p_000001\nflush chain inet fw4 zeeli_rev\n') == 0);
+});
+
+test('the file carries a revision that changes with any change to it, and is the same for the same file', () => {
+	const night = text({ ...base, policies: [bedtime()], now: at(23, 0) });
+	const day = text({ ...base, policies: [bedtime()], now: at(12, 0) });
+	ok(nft.revisionIn(night) != null && nft.revisionIn(day) != null);
+	ok(nft.revisionIn(night) != nft.revisionIn(day), 'a schedule flipping changes it');
+	eq(nft.revisionIn(night), nft.revisionIn(text({ ...base, policies: [bedtime()], now: at(23, 0) })));
+	eq(nft.revisionIn('no chain here'), null);
+	eq(nft.structureOf(night), nft.structureOf(day), 'and the revision rule is not part of the structure');
+});
+
+test('only the original direction of a connection is matched, so replies still get through', () => {
+	for (let name in keys(CASES)) {
+		const rules = [];
+		for (let line in split(text(CASES[name]), '\n'))
+			if (match(line, /counter (drop|accept)$/)) push(rules, line);
+		for (let r in rules) ok(index(r, ' ct direction original counter ') > 0, `${name}: ${r}`);
+	}
+});
+
+test('an uplink is not a network a policy can be for', () => {
+	const c = nft.compile({ ...base, policies: [policy('000001', 10, { who: [network('wan')], what: { kind: 'everything' } })], now: at(12, 0) });
+	eq(c.chains[0].rules, []);
+	ok(index(c.warnings[0], 'is an uplink') > 0, c.warnings[0]);
+});
+
+test('ownedNames lists the chains and sets the file declares', () => {
+	const c = nft.compile(CASES['sites']);
+	eq(nft.ownedNames(c), {
+		chains: ['zeeli_forward', 'zeeli_rev', 'zeeli_dns', 'zeeli_p_000002', 'zeeli_d_000002'],
+		sets: ['zeeli_g_a1b2c3', 'zeeli_c_000002', 'zeeli_s4_000002', 'zeeli_s6_000002'],
+	});
 });
 
 test('no policy text ever contains a name a person typed', () => {

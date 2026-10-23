@@ -91,6 +91,7 @@ test('choosing a speed limit hides what to cover and the router’s complaint sh
   const s = await sheet();
   await user.click(s.getByRole('button', { name: 'Limit speed' }));
   expect(s.getByText('A speed limit covers all of a device’s traffic.')).toBeTruthy();
+  expect(s.getByText(/turns on the router’s traffic shaping/)).toBeTruthy();
   expect(s.queryByRole('button', { name: 'Networks' })).toBeNull();
   await user.click(s.getByRole('button', { name: 'Create policy' }));
   expect((await s.findByRole('alert')).textContent).toBe('Enter a download or an upload limit.');

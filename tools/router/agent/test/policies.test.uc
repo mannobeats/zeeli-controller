@@ -2,11 +2,12 @@
 // moves them. The router is never touched: commands are recorded in `sys.calls`.
 'use strict';
 
-import { readfile, writefile } from 'fs';
+import { mkdir, readfile, rmdir, unlink, writefile } from 'fs';
 import { eq, ok, test, done } from 'assert';
-import { NOON, included, mac, ran, reset, sections, uci } from 'sandbox';
+import { NOON, included, normal, mac, ran, reset, sections, uci } from 'sandbox';
 import * as groups from 'zeeli.groups';
 import * as policies from 'zeeli.policies';
+import { revisionIn } from 'zeeli.nftpolicy';
 import { parseNeighbours, parseZoneDevices, sys, tick } from 'zeeli.policyapply';
 import { plugin } from 'assert';
 import { paths } from 'zeeli.common';
@@ -198,7 +199,7 @@ test('there are up to 128 policies, and up to 32 people, groups and networks in 
 test('a new policy is checked, written to the include and loaded', () => {
 	reset();
 	const p = make({ who: [{ type: 'client', id: TV }] });
-	ok(index(included(), `chain zeeli_p_${p.id} {\n\t\tether saddr @zeeli_c_${p.id} oifname { "eth0", "sta1" } counter drop\n\t}`) >= 0, included());
+	ok(index(included(), `chain zeeli_p_${p.id} {\n\t\tether saddr @zeeli_c_${p.id} oifname { "eth0", "sta1" } ct direction original counter drop\n\t}`) >= 0, included());
 	const check = ran('nft')[0];
 	ok(match(check, /^nft -c -f .*policies\.check\.nft$/), check);
 	eq(ran('reload'), ['reload firewall']);
@@ -213,7 +214,7 @@ test('the check sees the whole include in a scratch table', () => {
 	let seen = null;
 	sys.answer = (argv) => {
 		if (argv[0] == 'nft' && argv[1] == '-c') seen = readfile(argv[3]);
-		return { code: 0, stdout: '' };
+		return normal(argv);
 	};
 	make({});
 	ok(index(seen, 'table inet zeeli_check {\n') == 0, seen);
@@ -226,7 +227,7 @@ test('when the firewall would refuse the file, nothing changes and the old file 
 	const a = make({ name: 'First' });
 	const before = included();
 	sys.calls = [];
-	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == '-c' ? { code: 1, stdout: 'Error: syntax error, unexpected foo\nmore' } : { code: 0, stdout: '' });
+	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == '-c' ? { code: 1, stdout: 'Error: syntax error, unexpected foo\nmore' } : normal(argv));
 	const r = policies.create({ name: 'Second', who: [{ type: 'client', id: LEO }], what: { kind: 'internet' }, when: { kind: 'always' }, action: { kind: 'block' } });
 	eq(r.error, 'The firewall wouldn’t take these policies (Error: syntax error, unexpected foo), so nothing was changed.');
 	eq(included(), before, 'the file is untouched');
@@ -242,7 +243,7 @@ test('switching a policy off or on only swaps rules on the running firewall', ()
 	eq(policies.update({ id: p.id, enabled: false }).applied, 'live');
 	eq(ran('reload'), [], 'no reload');
 	const live = ran('nft');
-	eq(length(live), 3, 'is it loaded, check the new file, then the swap');
+	eq(length(live), 4, 'is it loaded, check the new file, the swap, read the revision back');
 	ok(match(live[2], /^nft -f .*policies\.live\.nft$/), live[2]);
 	eq(find(p.id).enabled, false);
 	ok(index(included(), 'counter drop') < 0, 'rules are gone from the file too');
@@ -256,11 +257,13 @@ test('the live swap carries the same rules as the file', () => {
 	let sent = null;
 	sys.answer = (argv) => {
 		if (argv[0] == 'nft' && argv[1] == '-f') sent = readfile(argv[2]);
-		return { code: 0, stdout: '' };
+		return normal(argv);
 	};
 	policies.update({ id: p.id, enabled: false });
 	policies.update({ id: p.id, enabled: true });
-	eq(sent, `flush chain inet fw4 zeeli_p_${p.id}\nadd rule inet fw4 zeeli_p_${p.id} ether saddr @zeeli_c_${p.id} oifname { "eth0", "sta1" } counter drop\n`);
+	const head = `flush chain inet fw4 zeeli_p_${p.id}\nadd rule inet fw4 zeeli_p_${p.id} ether saddr @zeeli_c_${p.id} oifname { "eth0", "sta1" } ct direction original counter drop\n`;
+	ok(index(sent, head) == 0, sent);
+	ok(match(sent, /flush chain inet fw4 zeeli_rev\nadd rule inet fw4 zeeli_rev counter comment "zeeli-rev:[0-9a-f]{8}"\n$/), 'and the new revision');
 });
 
 test('a network whose devices change is a live change, noticed by the loop', () => {
@@ -298,7 +301,7 @@ test('if the firewall comes back without our chain, the previous file is put bac
 		reloads++;
 		push(this.calls, ['reload', name]);
 	};
-	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' && reloads == 1 ? { code: 1, stdout: 'No such file or directory' } : { code: 0, stdout: '' });
+	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' && reloads == 1 ? { code: 1, stdout: 'No such file or directory' } : normal(argv));
 	const r = policies.create({ name: 'Second', who: [{ type: 'client', id: LEO }], what: { kind: 'internet' }, when: { kind: 'always' }, action: { kind: 'block' } });
 	eq(r.error, 'The firewall didn’t load the policies, so they were rolled back. Check the system log for what it said.');
 	eq(included(), before, 'the old file is back');
@@ -310,7 +313,7 @@ test('a live swap the firewall refuses falls back to a reload', () => {
 	reset();
 	const p = make({});
 	sys.calls = [];
-	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == '-f' ? { code: 1, stdout: 'Error' } : { code: 0, stdout: '' });
+	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == '-f' ? { code: 1, stdout: 'Error' } : normal(argv));
 	eq(policies.update({ id: p.id, enabled: false }).applied, 'reload');
 	eq(ran('reload'), ['reload firewall']);
 });
@@ -332,7 +335,7 @@ test('the firewall is reloaded if our chain isn’t in it, e.g. after it restart
 		reloaded = true;
 		push(this.calls, ['reload', name]);
 	};
-	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' && !reloaded ? { code: 1, stdout: 'No such file or directory' } : { code: 0, stdout: '' });
+	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' && !reloaded ? { code: 1, stdout: 'No such file or directory' } : normal(argv));
 	eq(tick().applied, 'reload');
 	eq(ran('reload'), ['reload firewall']);
 });
@@ -341,7 +344,7 @@ test('a file the firewall can’t load is not tried again every 30 seconds', () 
 	reset();
 	make({});
 	sys.calls = [];
-	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' ? { code: 1, stdout: 'No such file or directory' } : { code: 0, stdout: '' });
+	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' ? { code: 1, stdout: 'No such file or directory' } : normal(argv));
 	ok(match(tick().error, /rolled back/));
 	eq(length(ran('reload')), 2, 'one reload to try, one to go back');
 	sys.calls = [];
@@ -357,6 +360,103 @@ test('with no policies at all, the agent leaves the firewall alone', () => {
 	eq(tick().applied, 'none');
 	eq(ran(), []);
 	eq(included(), null);
+});
+
+/* ---------- reading back what the firewall loaded ---------- */
+
+test('success is the revision read back from the live ruleset, not an exit code', () => {
+	reset();
+	make({ name: 'First' });
+	const before = included();
+	sys.calls = [];
+	// fw4 says it reloaded (exit 0) but keeps the old ruleset, as it does when it rejects a file
+	sys.answer = (argv) =>
+		argv[0] == 'nft' && argv[1] == 'list' && argv[5] == 'zeeli_rev'
+			? { code: 0, stdout: `chain zeeli_rev {\n\t\tcounter comment "zeeli-rev:${revisionIn(before)}"\n\t}\n` }
+			: normal(argv);
+	const r = policies.create({ name: 'Second', who: [{ type: 'client', id: LEO }], what: { kind: 'internet' }, when: { kind: 'always' }, action: { kind: 'block' } });
+	ok(match(r.error, /rolled back/), r.error);
+	eq(included(), before);
+	eq(length(sections('policy')), 1);
+});
+
+test('a reload that fails is a failure, whatever the ruleset says', () => {
+	reset();
+	make({ name: 'First' });
+	const before = included();
+	sys.answer = (argv) => (argv[0] == 'reload' ? { code: 1, stdout: '' } : normal(argv));
+	const r = policies.create({ name: 'Second', who: [{ type: 'client', id: LEO }], what: { kind: 'internet' }, when: { kind: 'always' }, action: { kind: 'block' } });
+	ok(match(r.error, /rolled back/), r.error);
+	eq(included(), before);
+});
+
+test('a ruleset that doesn’t hold the file on disk is not taken for loaded', () => {
+	reset();
+	make({});
+	sys.calls = [];
+	sys.answer = (argv) => (argv[0] == 'nft' && argv[1] == 'list' && argv[5] == 'zeeli_rev' ? { code: 0, stdout: 'counter comment "zeeli-rev:00000000"' } : normal(argv));
+	eq(tick().error, 'The firewall didn’t load the policies, so they were rolled back. Check the system log for what it said.');
+	eq(length(ran('reload')), 2);
+});
+
+test('a policy that goes leaves nothing of its own behind in the firewall', () => {
+	reset();
+	const p = make({ what: { kind: 'sites', sites: ['tiktok.com'] } });
+	let sent = null;
+	sys.answer = (argv) => {
+		// fw4 keeps what the new file no longer declares
+		if (argv[0] == 'nft' && argv[1] == '-t')
+			return { code: 0, stdout: `table inet fw4 {\n\tset zeeli_c_${p.id} {\n\t}\n\tset zeeli_s4_${p.id} {\n\t}\n\tchain zeeli_p_${p.id} {\n\t}\n\tchain zeeli_d_${p.id} {\n\t}\n\tchain zeeli_dns {\n\t}\n\tchain zeeli_forward {\n\t}\n\tchain input {\n\t}\n}\n` };
+		if (argv[0] == 'nft' && argv[1] == '-f' && match(argv[2], /orphans/)) sent = readfile(argv[2]);
+		return normal(argv);
+	};
+	eq(policies.remove({ id: p.id }).applied, 'reload');
+	eq(sent, `delete chain inet fw4 zeeli_p_${p.id}\ndelete chain inet fw4 zeeli_d_${p.id}\ndelete chain inet fw4 zeeli_dns\ndelete set inet fw4 zeeli_c_${p.id}\ndelete set inet fw4 zeeli_s4_${p.id}\n`);
+});
+
+test('what is still declared is not deleted', () => {
+	reset();
+	const p = make({});
+	let orphans = false;
+	sys.answer = (argv) => {
+		if (argv[0] == 'nft' && argv[1] == '-t') return { code: 0, stdout: `table inet fw4 {\n\tset zeeli_c_${p.id} {\n\t}\n\tchain zeeli_p_${p.id} {\n\t}\n\tchain zeeli_forward {\n\t}\n\tchain zeeli_rev {\n\t}\n}\n` };
+		if (argv[0] == 'nft' && argv[1] == '-f' && match(argv[2], /orphans/)) orphans = true;
+		return normal(argv);
+	};
+	policies.update({ id: p.id, name: 'x' });
+	make({ name: 'Another' });
+	eq(orphans, false);
+});
+
+/* ---------- uplinks ---------- */
+
+test('wan and any masquerading zone are not networks a policy can be for', () => {
+	reset();
+	for (let zone in ['wan', 'tailscale0'])
+		ok(match(policies.create({ name: 'X', who: [{ type: 'network', id: zone }], what: { kind: 'everything' }, when: { kind: 'always' }, action: { kind: 'block' } }).error, /is an uplink/), zone);
+	ok(policies.create({ name: 'X', who: [{ type: 'network', id: 'guest' }], what: { kind: 'everything' }, when: { kind: 'always' }, action: { kind: 'block' } }).policy, 'guest is fine');
+});
+
+/* ---------- the lock ---------- */
+
+test('a lock whose owner has died is taken over at once', () => {
+	reset();
+	mkdir(`${paths.state}/policies.lock`);
+	writefile(`${paths.state}/policies.lock/pid`, '999999');
+	ok(make({}).id);
+	eq(readfile(`${paths.state}/policies.lock/pid`), null, 'and let go again');
+});
+
+test('a lock whose owner is alive is never broken, however old', () => {
+	reset();
+	mkdir(`${paths.state}/policies.lock`);
+	writefile(`${paths.state}/policies.lock/pid`, match(readfile('/proc/self/stat'), /^([0-9]+) /)[1]);
+	sys.lockTries = 3;
+	eq(policies.create({ name: 'X', who: [{ type: 'client', id: TV }], what: { kind: 'internet' }, when: { kind: 'always' }, action: { kind: 'block' } }).error, 'The router is busy applying another change. Try again in a moment.');
+	sys.lockTries = 300;
+	ok(readfile(`${paths.state}/policies.lock/pid`) != null, 'the other holder keeps its lock');
+	unlink(`${paths.state}/policies.lock/pid`);
+	rmdir(`${paths.state}/policies.lock`);
 });
 
 /* ---------- order, pauses and time ---------- */
@@ -519,12 +619,28 @@ test('changing and deleting sites updates dnsmasq, and leaves its own entries al
 	ok(index(join(',', ran('reload')), 'dnsmasq') >= 0);
 });
 
-test('the agent looks the domains up itself so the sets fill even when AdGuard answers the devices', () => {
+test('the agent looks the domains up when a sites policy starts, with a time limit on each', () => {
 	reset();
 	make({ what: { kind: 'sites', sites: ['tiktok.com', 'tiktokv.com'] } });
+	eq(ran('timeout'), ['timeout 3 nslookup tiktok.com 127.0.0.1', 'timeout 3 nslookup tiktokv.com 127.0.0.1']);
+});
+
+test('and not again on every pass: only after ten minutes, a reload or a change of domains', () => {
+	reset();
+	const p = make({ what: { kind: 'sites', sites: ['tiktok.com'] } });
 	sys.calls = [];
 	tick();
-	eq(ran('nslookup'), ['nslookup tiktok.com 127.0.0.1', 'nslookup tiktokv.com 127.0.0.1']);
+	tick();
+	eq(ran('timeout'), [], 'nothing on the 30-second passes');
+	sys.now = () => NOON + 601;
+	tick();
+	eq(ran('timeout'), ['timeout 3 nslookup tiktok.com 127.0.0.1'], 'ten minutes on');
+	sys.calls = [];
+	policies.update({ id: p.id, what: { kind: 'sites', sites: ['tiktok.com', 'roblox.com'] } });
+	eq(ran('timeout'), ['timeout 3 nslookup roblox.com 127.0.0.1'], 'a new domain is looked up, the old one isn’t');
+	sys.calls = [];
+	make({ name: 'Another' });
+	eq(ran('timeout'), ['timeout 3 nslookup tiktok.com 127.0.0.1', 'timeout 3 nslookup roblox.com 127.0.0.1'], 'a reload empties the sets, so all are looked up again');
 });
 
 test('domains of a policy that isn’t on are not looked up', () => {
@@ -532,29 +648,72 @@ test('domains of a policy that isn’t on are not looked up', () => {
 	make({ what: { kind: 'sites', sites: ['tiktok.com'] }, when: everyNight });
 	sys.calls = [];
 	tick();
-	eq(ran('nslookup'), []);
+	eq(ran('timeout'), []);
+});
+
+test('at most 24 domains are looked up in one pass, the rest on the next', () => {
+	reset();
+	const sites = [];
+	for (let i = 10; i < 40; i++) push(sites, `site${i}.com`);
+	make({ what: { kind: 'sites', sites } });
+	eq(length(ran('timeout')), 24);
+	sys.calls = [];
+	tick();
+	eq(length(ran('timeout')), 6);
+	sys.calls = [];
+	tick();
+	eq(ran('timeout'), []);
+});
+
+test('lookups stop when their time budget is spent', () => {
+	reset();
+	let t = NOON;
+	sys.answer = (argv) => {
+		if (argv[0] == 'timeout') t += 8;
+		return normal(argv);
+	};
+	sys.now = () => t;
+	make({ what: { kind: 'sites', sites: ['a1.com', 'a2.com', 'a3.com', 'a4.com', 'a5.com'] } });
+	eq(length(ran('timeout')), 3, 'lookups of 8 seconds: the fourth would start at 24, past the 20 allowed');
+});
+
+test('lookups run after the lock is let go, so slow DNS can’t hold up another change', () => {
+	reset();
+	let heldDuring = null;
+	sys.answer = (argv) => {
+		if (argv[0] == 'timeout') heldDuring = readfile(`${paths.state}/policies.lock/pid`);
+		return normal(argv);
+	};
+	make({ what: { kind: 'sites', sites: ['tiktok.com'] } });
+	eq(heldDuring, null);
 });
 
 /* ---------- speed limits, through gl_eqos ---------- */
 
 test('a limit is handed to the firmware’s gl_eqos in KiB per second', () => {
 	reset();
-	sys.answer = (argv) => (argv[0] == 'tc' ? { code: 0, stdout: 'class htb 1:1 root' } : { code: 0, stdout: '' });
+	sys.answer = (argv) => (argv[0] == 'tc' ? { code: 0, stdout: 'class htb 1:1 root' } : normal(argv));
 	make({ what: { kind: 'everything' }, action: { kind: 'limit', down: 5, up: 1 } });
 	eq(ran('/usr/bin/gl_eqos'), ['/usr/bin/gl_eqos add 02:5E:E1:31:90:F4 610 122']);
 	eq(uci('zeeli_applied', 'limit'), ['02:5e:e1:31:90:f4=610=122']);
 });
 
-test('the first limit starts the firmware’s queue', () => {
+test('the first limit starts the firmware’s queue, says what that does, and a 0 direction is left unlimited', () => {
 	reset();
-	sys.answer = (argv) => ({ code: 0, stdout: '' });
-	make({ what: { kind: 'everything' }, action: { kind: 'limit', down: 5, up: 0 } });
+	const r = policies.create({ name: 'Slow', who: [{ type: 'client', id: TV }], what: { kind: 'everything' }, when: { kind: 'always' }, action: { kind: 'limit', down: 5, up: 0 } });
+	// in gl_eqos a direction given as 0 gets no class at all (`[ $dl -gt 0 ]`), so 0 is "no limit", not "0 KiB/s"
 	eq(ran('/usr/bin/gl_eqos'), ['/usr/bin/gl_eqos start 312500 312500', '/usr/bin/gl_eqos add 02:5E:E1:31:90:F4 610 0']);
+	eq(r.warnings, ['Speed limits turned on the router’s traffic shaping, which sends all traffic through a software queue and can lower top speed on very fast links.']);
+	sys.calls = [];
+	sys.answer = (argv) => (argv[0] == 'tc' ? { code: 0, stdout: 'class htb' } : normal(argv));
+	const again = policies.create({ name: 'Slow too', who: [{ type: 'client', id: LEO }], what: { kind: 'everything' }, when: { kind: 'always' }, action: { kind: 'limit', down: 0, up: 2 } });
+	eq(ran('/usr/bin/gl_eqos'), ['/usr/bin/gl_eqos add 02:5E:E1:17:2B:C1 0 244']);
+	eq(again.warnings, [], 'nothing to say once it is on');
 });
 
 test('changing a limit replaces it, removing the policy removes only the limit the agent set', () => {
 	reset();
-	sys.answer = (argv) => (argv[0] == 'tc' ? { code: 0, stdout: 'class' } : { code: 0, stdout: '' });
+	sys.answer = (argv) => (argv[0] == 'tc' ? { code: 0, stdout: 'class' } : normal(argv));
 	const p = make({ what: { kind: 'everything' }, action: { kind: 'limit', down: 5, up: 1 } });
 	sys.calls = [];
 	policies.update({ id: p.id, action: { kind: 'limit', down: 10, up: 2 } });
@@ -567,7 +726,7 @@ test('changing a limit replaces it, removing the policy removes only the limit t
 
 test('a limit on a schedule is set when it starts and removed when it ends', () => {
 	reset();
-	sys.answer = (argv) => (argv[0] == 'tc' ? { code: 0, stdout: 'class' } : { code: 0, stdout: '' });
+	sys.answer = (argv) => (argv[0] == 'tc' ? { code: 0, stdout: 'class' } : normal(argv));
 	make({ what: { kind: 'everything' }, when: everyNight, action: { kind: 'limit', down: 1, up: 1 } });
 	eq(ran('/usr/bin/gl_eqos'), []);
 	clockAt(22, 0);

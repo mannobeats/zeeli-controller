@@ -32,10 +32,10 @@ table inet zeeli_check {
 	}
 
 	chain zeeli_p_000002 {
-		ether saddr @zeeli_g_a1b2c3 ip daddr @zeeli_s4_000002 counter drop
-		ether saddr @zeeli_g_a1b2c3 ip6 daddr @zeeli_s6_000002 counter drop
-		ether saddr @zeeli_c_000002 ip daddr @zeeli_s4_000002 counter drop
-		ether saddr @zeeli_c_000002 ip6 daddr @zeeli_s6_000002 counter drop
+		ether saddr @zeeli_g_a1b2c3 ip daddr @zeeli_s4_000002 ct direction original counter drop
+		ether saddr @zeeli_g_a1b2c3 ip6 daddr @zeeli_s6_000002 ct direction original counter drop
+		ether saddr @zeeli_c_000002 ip daddr @zeeli_s4_000002 ct direction original counter drop
+		ether saddr @zeeli_c_000002 ip6 daddr @zeeli_s6_000002 ct direction original counter drop
 	}
 
 	chain zeeli_d_000002 {
@@ -53,5 +53,9 @@ table inet zeeli_check {
 	chain zeeli_forward {
 		type filter hook forward priority -1; policy accept;
 		jump zeeli_p_000002
+	}
+
+	chain zeeli_rev {
+		counter comment "zeeli-rev:b9010227"
 	}
 }
