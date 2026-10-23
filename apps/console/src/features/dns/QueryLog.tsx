@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { domainAction, type QueryLogEntry } from '@zeeli/router-api';
 import { useState } from 'react';
 import { api } from '../../api/router.ts';
 import { errorMessage } from '../../lib/errors.ts';
@@ -7,6 +8,7 @@ import { FilterBar } from '../../ui/FilterBar.tsx';
 import { facetOptions, matches } from '../../ui/filter.ts';
 import { Empty, Panel } from '../../ui/Layout.tsx';
 import { useDeviceName } from './names.ts';
+import { RULES_KEY, useRuleEdit } from './useRuleEdit.ts';
 
 /** AdGuard Home's live query log, filtered by words, device and result. Used wherever DNS activity shows. */
 export function QueryLog() {
@@ -14,6 +16,8 @@ export function QueryLog() {
   const [device, setDevice] = useState('');
   const [result, setResult] = useState('');
   const log = useQuery({ queryKey: ['adguard-log'], queryFn: () => api.dns.queryLog(200), refetchInterval: 10_000 });
+  const rules = useQuery({ queryKey: RULES_KEY, queryFn: api.dns.userRules });
+  const edit = useRuleEdit();
   const nameOf = useDeviceName();
   const all = log.data ?? [];
   const rows = all.filter(
@@ -69,8 +73,12 @@ export function QueryLog() {
               header: 'Result',
               align: 'end',
               phone: 'end',
-              cell: (e) =>
-                e.blocked ? <span className="tone-bad">Blocked</span> : <span className="tone-off">{e.elapsedMs.toFixed(1)} ms</span>,
+              cell: (e) => (
+                <span className="row-actions">
+                  {e.blocked ? <span className="tone-bad">Blocked</span> : <span className="tone-off">{e.elapsedMs.toFixed(1)} ms</span>}
+                  {rules.data ? <RuleButton entry={e} rules={rules.data} edit={edit} /> : null}
+                </span>
+              ),
             },
           ]}
         />
@@ -78,5 +86,21 @@ export function QueryLog() {
         <Empty>{all.length ? 'No queries match.' : 'No queries yet.'}</Empty>
       )}
     </Panel>
+  );
+}
+
+/** One click to block, allow or take back your own rule for the domain in a row. */
+function RuleButton({ entry, rules, edit }: { entry: QueryLogEntry; rules: string[]; edit: ReturnType<typeof useRuleEdit> }) {
+  const action = domainAction(rules, entry.domain, entry.blocked);
+  return (
+    <button
+      type="button"
+      className="link"
+      disabled={edit.busy}
+      aria-label={`${action.label} ${entry.domain}`}
+      onClick={() => edit.apply((fresh) => domainAction(fresh, entry.domain, entry.blocked).rules, action.done)}
+    >
+      {action.label}
+    </button>
   );
 }

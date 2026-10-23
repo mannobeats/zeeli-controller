@@ -1,5 +1,6 @@
 export { createRouterApi, type RouterApi } from './api.ts';
 export * from './domain/activity.ts';
+export * from './domain/adguard.ts';
 export * from './domain/apps.ts';
 export * from './domain/clients.ts';
 export * from './domain/device.ts';

@@ -1,3 +1,4 @@
+import { adguardAdminHandlers } from './adguard-admin.ts';
 import type { MockState } from './seed.ts';
 
 type Args = Record<string, unknown>;
@@ -30,6 +31,7 @@ const toggle =
   };
 
 export const adguardHandlers: Record<string, Handler> = {
+  ...adguardAdminHandlers,
   'adguard:safebrowsing/status': (s) => ({ enabled: protections(s).safebrowsing }),
   'adguard:safebrowsing/enable': toggle('safebrowsing', true),
   'adguard:safebrowsing/disable': toggle('safebrowsing', false),

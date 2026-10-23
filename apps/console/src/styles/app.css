@@ -270,6 +270,11 @@ tr:hover .row-act, tr:focus-within .row-act { opacity: 1; }
 .facet:focus { outline: none; border-color: var(--brand); }
 .facet.on { color: var(--select-ink); border-color: var(--brand); background-color: var(--surface); font-weight: 500; }
 .filter-count { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; font-size: var(--t-13); color: var(--ink-3); }
+.svc-group h3 { margin: 16px 0 6px; font-size: var(--t-12); font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 20px; margin: 0; padding: 0; list-style: none; }
+.svc { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.svc img, .svc-blank { width: 20px; height: 20px; flex: none; border-radius: 5px; }
+.svc .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-13); }
 .filter-clear { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-2); font-size: var(--t-13); cursor: pointer; }
 .filter-clear:hover { background: var(--hover); color: var(--ink); }
 .more-rows { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 12px 0 2px; font-size: var(--t-13); color: var(--ink-3); border-top: 1px solid var(--line); }
