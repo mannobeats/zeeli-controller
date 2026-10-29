@@ -22,8 +22,8 @@
     "deploy:router": "sh tools/deploy.sh"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.2",
-    "fallow": "^3.34.1",
+    "@biomejs/biome": "^2.6.3",
+    "fallow": "^3.36.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5",
     "@vitest/coverage-v8": "^5.0.5"
